@@ -1,0 +1,6 @@
+import std::io;
+
+fn main() -> Result[i32, io::Error] {
+    io::println("Hello, Cretes!")?;
+    return Result::Ok(0);
+}

@@ -1,0 +1,7 @@
+import std::fs;
+
+fn main() -> Result[i32, fs::Error] {
+    let data = fs::read_bytes("input.bin")?;
+    fs::write_bytes("output.bin", &data)?;
+    return Result::Ok(0);
+}

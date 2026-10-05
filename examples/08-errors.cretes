@@ -1,0 +1,18 @@
+enum InputError { Negative, }
+
+fn validate(value: i64) -> Result[i64, InputError] {
+    if value < 0 {
+        return Result::Err(InputError::Negative());
+    }
+    return Result::Ok(value);
+}
+
+fn main() -> Result[i32, InputError] {
+    let value = validate(12)?;
+    let optional: Option[i64] = Option::Some(value);
+    match optional {
+        Option::Some(n) => { discard(n, "Validated demonstration input"); }
+        Option::None() => { return Result::Ok(1); }
+    }
+    return Result::Ok(0);
+}

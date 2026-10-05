@@ -1,0 +1,10 @@
+import std::bytes;
+
+fn has_magic(data: &Bytes) -> bool {
+    if bytes::len(data) < 2 {
+        return false;
+    }
+    let first: u8 = (*data)[0];
+    let second: u8 = (*data)[1];
+    return first == 0x43 && second == 0x52;
+}

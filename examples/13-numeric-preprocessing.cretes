@@ -1,0 +1,7 @@
+fn sum(values: &Seq[f64]) -> f64 {
+    var total: f64 = 0.0;
+    for value in values {
+        total = total + *value;
+    }
+    return total;
+}

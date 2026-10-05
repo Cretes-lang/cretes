@@ -1,0 +1,14 @@
+import std::bytes;
+
+enum PacketError { Truncated, Unsupported, }
+
+fn version(packet: &Bytes) -> Result[u8, PacketError] {
+    if bytes::len(packet) < 1 {
+        return Result::Err(PacketError::Truncated());
+    }
+    let value: u8 = (*packet)[0];
+    if value != 1 {
+        return Result::Err(PacketError::Unsupported());
+    }
+    return Result::Ok(value);
+}

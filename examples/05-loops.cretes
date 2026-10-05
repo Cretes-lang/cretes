@@ -1,0 +1,17 @@
+fn total() -> i64 {
+    var sum: i64 = 0;
+    for value in [1, 2, 3] {
+        sum = sum + value;
+    }
+    var index: i64 = 0;
+    while index < 3 {
+        index = index + 1;
+        if index == 2 {
+            continue;
+        }
+    }
+    loop {
+        break;
+    }
+    return sum;
+}

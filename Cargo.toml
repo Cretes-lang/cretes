@@ -1,0 +1,19 @@
+[package]
+name = "cretes-frontend"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+path = "compiler/lib.rs"
+
+[[bin]]
+name = "cretes-front"
+path = "compiler/main.rs"
+
+[[bench]]
+name = "baseline"
+path = "benchmarks/baseline.rs"
+harness = false

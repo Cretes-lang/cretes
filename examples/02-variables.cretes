@@ -1,0 +1,9 @@
+const LIMIT: i64 = 10;
+
+fn main() -> i32 {
+    let start: i64 = 2;
+    var count = start;
+    count = count + LIMIT;
+    discard(count, "Demonstrate mutable arithmetic without output");
+    return 0;
+}

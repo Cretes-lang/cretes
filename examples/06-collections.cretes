@@ -1,0 +1,16 @@
+import std::seq;
+import std::map;
+import std::set;
+
+fn main() -> i32 {
+    var values: Seq[i64] = [2, 4, 6];
+    seq::push(&mut values, 8);
+    let lookup: Map[text, i64] = map::empty();
+    let unique: Set[i64] = set::empty();
+    discard(lookup, "Empty map construction example");
+    discard(unique, "Empty set construction example");
+    for value in &values {
+        discard(*value, "Read each element through a shared view");
+    }
+    return 0;
+}

@@ -1,0 +1,16 @@
+fn first(values: &Seq[i64]) -> &i64 from values {
+    return &(*values)[0];
+}
+
+fn increment(value: &mut i64) -> () {
+    *value = *value + 1;
+}
+
+fn main() -> i32 {
+    var count: i64 = 0;
+    increment(&mut count);
+    let values: Seq[i64] = [count];
+    let view = first(&values);
+    discard(*view, "Inspect the borrowed value before its owner exits");
+    return 0;
+}

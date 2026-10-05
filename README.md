@@ -1,34 +1,38 @@
 # Cretes
 
-**The Cretes Programming Language**
+The Cretes Programming Language — automation, networking, AI/ML applications and cybersecurity.
 
-Automation · Networking · AI/ML Applications · Cybersecurity
+This repository contains the **provisional Phase 4 syntax frontend** for `.cretes` sources. It implements the published Phase 3 candidate, not an accepted or stable language release. Phase 2/3 RFC acceptance remains a separate governance gate. There is no program execution, semantic analyzer, type checker, IR, backend or runtime.
 
-## Status
+## Build and inspect
 
-Project foundation only. There is no compiler, runtime, finalized syntax, package manager or installable release. `.cretes` is the selected source extension. Performance, safety and platform support remain design goals to evaluate later.
+Install the pinned Rust 1.85.1 toolchain (see `rust-toolchain.toml`). No third-party Rust dependencies are needed.
 
-## Repository scope
+```sh
+cargo build --locked
+cargo test --locked
+cargo fmt --all -- --check
+cargo clippy --all-targets --locked -- -D warnings
+cargo run --bin cretes-front -- lex examples/01-hello-world.cretes
+cargo run --bin cretes-front -- parse examples/01-hello-world.cretes
+cargo run --bin cretes-front -- parse examples/08-errors.cretes --json-diagnostics
+cargo bench --bench baseline
+```
 
-This will be the main home for the compiler, runtime, standard library, CLI, tests, examples and benchmarks. Implementation directories will be added when their architecture is approved. No implementation language, backend, type system or memory model is selected by this setup.
+`cretes-front` is an experimental developer utility. `lex` prints tokens; `parse` prints the arena AST. Diagnostics go to stderr. Exit codes: 0 for successful syntax processing, 1 for source diagnostics, 2 for usage/I/O failures. Syntax success does not establish semantic validity. Debug output and Rust APIs are not stable compatibility promises.
 
-## Development sequence
+## Implementation and evidence
 
-Phase 0 establishes governance and process. Phase 1 will define language vision and measurable requirements. Architecture, syntax and implementation follow through reviewed RFCs and specification work. No Phase 1 requirements have been authored here.
+- [Frontend architecture, API, diagnostics and limits](docs/FRONTEND.md)
+- [Grammar coverage and requirements traceability](docs/CONFORMANCE.md)
+- [Source → tokens → AST demonstrations](docs/DEMONSTRATIONS.md)
+- [Security review and performance measurements](docs/REVIEW.md)
+- [Phase 4 implementation status and handoff](docs/PHASE4.md)
 
-See [spec](https://github.com/Cretes-lang/spec) for the future normative reference and [rfcs](https://github.com/Cretes-lang/rfcs) for the proposal process.
+Canonical source: [Phase 3 candidate](https://github.com/Cretes-lang/spec/tree/fe6d0d48518d0419d59fb680673150c92b6a084c/docs/language). The 14 examples are byte-for-byte copies. Domain examples validate syntax only; their APIs are not implemented.
 
-## Contributing now
+## Contributing
 
-Review foundation documentation and report actionable improvements through issues. There are no build or test commands yet. Do not copy hypothetical syntax into documentation as a supported language feature.
+Follow the organization [contribution rules](https://github.com/Cretes-lang/.github/blob/main/CONTRIBUTING.md), [governance](https://github.com/Cretes-lang/.github/blob/main/GOVERNANCE.md), [engineering standards](https://github.com/Cretes-lang/.github/blob/main/ENGINEERING.md), [code of conduct](https://github.com/Cretes-lang/.github/blob/main/CODE_OF_CONDUCT.md) and [security reporting policy](https://github.com/Cretes-lang/.github/blob/main/SECURITY.md). Open an issue, use a feature branch and submit a tested PR. Changes to language design require the RFC process; do not adapt the specification to parser bugs.
 
-## Project policies
-
-- [Contributing](https://github.com/Cretes-lang/.github/blob/main/CONTRIBUTING.md)
-- [Governance](https://github.com/Cretes-lang/.github/blob/main/GOVERNANCE.md)
-- [Code of Conduct](https://github.com/Cretes-lang/.github/blob/main/CODE_OF_CONDUCT.md)
-- [Security reporting](https://github.com/Cretes-lang/.github/blob/main/SECURITY.md)
-- [Engineering standards](https://github.com/Cretes-lang/.github/blob/main/ENGINEERING.md)
-- [Versioning](https://github.com/Cretes-lang/.github/blob/main/VERSIONING.md)
-
-Initial maintainer: @krishanth7. License: [Apache-2.0](LICENSE).
+License: [Apache-2.0](LICENSE). Initial maintainer: @krishanth7.

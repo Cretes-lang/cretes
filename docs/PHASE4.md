@@ -1,8 +1,8 @@
-# Cretes Phase 4 implementation report
+# Cretes Phase 4 Completion Report
 
-**Overall status: implementation ready for GitHub review; formal phase closure remains conditional on CI and upstream RFC acceptance.**
+**Overall status: Partially Complete — the provisional Phase 4 implementation is complete, tested and merged; formal phase closure remains pending upstream RFC acceptance.**
 
-Organization: Cretes-lang. Repository modified: cretes. Branch: feature/phase4-frontend. Tracking issue: #1. This report describes the candidate implementation; the PR records actual commits, checks, self-review and merge outcome. No other repository or normative specification is modified.
+Organization: Cretes-lang. Repository modified: cretes. Branch: feature/phase4-frontend. Tracking issue: #1. PR #2 is merged at `4319944a6b412a6cf4c2990bebc1c3b0977c23ff`. This report describes the tested candidate implementation and the separate outstanding formal acceptance gate. No other repository or normative specification is modified.
 
 ## Implementation sections 4.1–4.30
 
@@ -11,7 +11,7 @@ Organization: Cretes-lang. Repository modified: cretes. Branch: feature/phase4-f
 | 4.1 Compiler foundation | Dependency-free Rust library + experimental inspection binary; pinned 1.85.1 toolchain, lockfile, fmt/lint/test/build CI |
 | 4.2 Source manager | Immutable physical/in-memory snapshots, strict cached UTF-8 validation and append-only session IDs |
 | 4.3 Source positions | Original-byte half-open spans, line index, one-based scalar columns, CRLF preservation |
-| 4.4 Tokens | Explicit 26 keyword/34 punctuation kinds; source-backed identifiers/literals; stable EOF; preserved trivia |
+| 4.4 Tokens | Explicit 26 keyword/35 punctuation kinds; source-backed identifiers/literals; stable EOF; preserved trivia |
 | 4.5 Lexer | Forward scanner, longest-match punctuation, nested comments, source-control validation and limits |
 | 4.6 Lexical coverage | All candidate lexical forms including numeric bases/exponents/separators, strings, characters and byte strings |
 | 4.7 Lexical diagnostics | L001–L005 structured errors with byte spans, help and deterministic ordering |
@@ -35,8 +35,8 @@ Organization: Cretes-lang. Repository modified: cretes. Branch: feature/phase4-f
 | 4.25 Invalid programs | 53 negative Phase 3 fixtures plus robustness cases; five actual process demonstrations in INVALID.md |
 | 4.26 Security | Review findings/fixes and residual limits in REVIEW.md; no independent audit claimed |
 | 4.27 Performance | Five measured runs and separate whole-process peak RSS in REVIEW.md |
-| 4.28 Cross-platform | Locally verified Linux x86_64; remote Linux/Windows/macOS CI results recorded in PR |
-| 4.29 CI | Format, strict Clippy, full tests and release build across three runners; do not claim green until observed |
+| 4.28 Cross-platform | Linux x86_64 local tests and actual Linux/Windows/macOS GitHub CI all passed |
+| 4.29 CI | Six checks passed on implementation head a1cda45: push and pull_request on all three runners |
 | 4.30 Traceability | Major inherited Phase 1→2→3 IDs mapped to implementation/tests in CONFORMANCE.md |
 
 ## Development-section gate
@@ -51,9 +51,32 @@ Organization: Cretes-lang. Repository modified: cretes. Branch: feature/phase4-f
 | 4.36–4.40 | Four test suites and security review — implemented and locally passing |
 | 4.41 | benchmarks/baseline.rs + recorded results — measured |
 | 4.42–4.43 | 45-production mapping + all 14 canonical examples — reviewed/passing |
-| 4.44 | Three-platform CI configured; observed results belong to PR completion record |
+| 4.44 | Actual Linux, Windows and macOS CI runs passed |
 | 4.45 | README plus six implementation/evidence documents — written |
-| 4.46–4.47 | Full diff/CI/merge and formal acceptance remain explicit closure gates |
+| 4.46–4.47 | Published diff reviewed, CI passed, PR #2 merged; upstream formal acceptance remains pending |
+
+## GitHub delivery and review
+
+- Implementation PR: [#2](https://github.com/Cretes-lang/cretes/pull/2), merged.
+- Implementation branch: `feature/phase4-frontend`.
+- Implementation tracking issue: [#1](https://github.com/Cretes-lang/cretes/issues/1).
+- Merged revision: `4319944a6b412a6cf4c2990bebc1c3b0977c23ff`.
+- Validated implementation head: `a1cda45b0fb82b74b8c42818b983cd0009a61f61`.
+- Published-file verification: all 39 changed files matched local validated bytes; downloaded GitHub archive passed all 158 tests.
+- Review: AI-assisted self-review of grammar, spans/Unicode, recovery/termination, AST shape, diagnostics, limits, complexity, tests, documentation and phase boundaries. No independent approval claimed.
+- Formal acceptance: publication/merge of RFC documents is not a dated accepted decision. Phase 3 RFC #2 was observed merged on 2026-10-06 while its text still says PROPOSED / UNACCEPTED and final-comment/decision work remains pending.
+
+| Commit | Meaningful change |
+|---|---|
+| fc831af | Pinned Rust package foundation |
+| 10b165b | Source snapshots and byte spans |
+| 1bbe69e | Lexer, parser, AST, diagnostics and API/CLI |
+| e11b3c2 | Precedence and AST shape tests |
+| dde3459 | Conformance, malformed-input and CLI tests |
+| 3ff9aab, f3c8e0d | All 14 original canonical examples |
+| e0d7316 | Measured benchmark harness |
+| 668e1a7 | Linux/Windows/macOS CI |
+| aa61785, a1cda45 | Architecture, conformance, demonstrations and review evidence |
 
 ## Files
 

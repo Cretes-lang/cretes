@@ -54,7 +54,7 @@ Functions listed below are in `compiler/parser.rs`; tests are in `tests/conforma
 
 ## Lexical coverage
 
-`compiler/lexer.rs` and `compiler/token.rs` implement lexical.ebnf: whitespace, all 26 keywords, all 34 punctuation/operator spellings, ASCII identifiers and wildcard, nested comments and documentation comments, integer bases/separators, decimal/exponent floats, strings, character scalars and byte strings. `every_keyword_and_prefix` and `every_operator_and_longest_match` cover the entire fixed inventories. Conformance fixtures 019–022 and 064–084 cover literals and lexical errors; robustness tests add UTF-8, raw controls, CRLF, longest inputs and malformed streams.
+`compiler/lexer.rs` and `compiler/token.rs` implement lexical.ebnf: whitespace, all 26 keywords, all 35 punctuation/operator spellings, ASCII identifiers and wildcard, nested comments and documentation comments, integer bases/separators, decimal/exponent floats, strings, character scalars and byte strings. `every_keyword_and_prefix` and `every_operator_and_longest_match` cover the entire fixed inventories. Conformance fixtures 019–022 and 064–084 cover literals and lexical errors; robustness tests add UTF-8, raw controls, CRLF, longest inputs and malformed streams.
 
 Tests embed original fixture source bytes, including actual prohibited controls. The 101 fixtures comprise 32 syntax-valid, 31 syntax-invalid, 22 lexical-invalid and 16 semantic-negative cases. All semantic-negative fixtures must parse: this prevents accidental implementation of Phase 5. The 14 examples are unmodified copies with names preserved.
 

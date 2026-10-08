@@ -19,6 +19,9 @@ symbol acceptance is introduced. Modules are sorted before collection.
 - Exact type compatibility, contextual numeric literals, calls, assignments,
   control structures, Result propagation, Option/Result constructors and patterns.
 - Recursive pattern-matrix usefulness/exhaustiveness checking.
+- Reachable exit sets for branches, matches and loops, distinguishing return,
+  break, continue, fallthrough and divergence. Literal boolean conditions are
+  recognized without skipping type checks in unreachable syntax.
 - Restricted, fuel-bounded constant evaluation with integer overflow, shift,
   division and dependency-cycle diagnostics. Constant syntax is checked even in
   short-circuited operands.
@@ -29,7 +32,8 @@ symbol acceptance is introduced. Modules are sorted before collection.
   expansion of shared type graphs; duplicate-declaration labels respect diagnostic limits.
 
 The result retains ASTs, symbols/scopes, interned types, expression type tables,
-resolved-symbol tables, constants and diagnostics. `is_valid()` currently means
+resolved-symbol tables, public resolved function contracts (including `from`),
+record/enum shapes, value categories, constants and diagnostics. `is_valid()` currently means
 no diagnostics from the implemented name/type checks; **it does not certify
 move/loan safety or full language validity**. Rust APIs and dumps remain experimental.
 
@@ -37,17 +41,18 @@ move/loan safety or full language validity**. Rust APIs and dumps remain experim
 
 Rust 1.85.1, Linux, 2026-10-08:
 
-- `cargo test --locked`: 243 tests passed (158 existing + 85 semantic).
+- `cargo test --locked`: 255 tests passed (158 existing + 97 semantic).
 - `cargo fmt --all -- --check`: passed.
 - `cargo clippy --all-targets --locked -- -D warnings`: passed.
 
 No new dependencies. Existing platform CI automatically includes the semantic
-tests. Remote CI and other platforms must be verified on the uploaded revision;
-local results do not establish those outcomes.
+tests. The earlier checkpoint `1cecb3f3ad2082f59b354d6441ea866599e18464` passed all
+six push/PR checks on Linux, Windows and macOS (verified 2026-10-08). Later
+changes require their own CI confirmation; these local results do not imply it.
 
 ## Remaining work and known limitations
 
-- Complete control-flow joins, loop behavior and bound Result obligations.
+- Implement bound Result obligations and expand control-flow integration tests.
 - Review reference provenance, ownership/loan-stage integration and resource
   bounds throughout recursive helpers. There is no completed borrow checker.
 - Finish a typed handoff that exposes all later-stage metadata and a documented

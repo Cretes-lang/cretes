@@ -99,17 +99,22 @@ impl Analyzer<'_> {
         }
         valid
     }
-    fn constant_type(&self, t: TypeId, depth: usize) -> bool {
-        if depth > 128 {
-            return false;
-        }
-        match self.result.types.get(t) {
-            Some(Type::Integer { .. } | Type::Usize | Type::Float(_) | Type::Bool | Type::Char) => {
-                true
+    fn constant_type(&self, root: TypeId, _depth: usize) -> bool {
+        let mut stack = vec![root];
+        let mut seen = BTreeSet::new();
+        while let Some(t) = stack.pop() {
+            if !seen.insert(t) {
+                continue;
             }
-            Some(Type::Tuple(ts)) => ts.iter().all(|t| self.constant_type(*t, depth + 1)),
-            _ => false,
+            match self.result.types.get(t) {
+                Some(
+                    Type::Integer { .. } | Type::Usize | Type::Float(_) | Type::Bool | Type::Char,
+                ) => {}
+                Some(Type::Tuple(ts)) => stack.extend(ts),
+                _ => return false,
+            }
         }
+        true
     }
     fn eval_constant(
         &mut self,

@@ -1012,115 +1012,95 @@ impl Analyzer<'_> {
         }
         self.result.modules[m.0].node_types.insert(n.0, ty);
     }
-    fn place(&self, m: ModuleId, n: NodeId) -> bool {
-        match self.node(m, n) {
-            NodeKind::Path { .. } => {
-                self.result.modules[m.0]
-                    .resolutions
-                    .get(&n.0)
-                    .is_some_and(|s| {
-                        matches!(
-                            self.result.symbols[s.0].kind,
-                            SymbolKind::Local | SymbolKind::Parameter | SymbolKind::Pattern
-                        )
-                    })
+    fn place(&self, m: ModuleId, mut n: NodeId) -> bool {
+        loop {
+            match self.node(m, n) {
+                NodeKind::Path { .. } => {
+                    return self.result.modules[m.0]
+                        .resolutions
+                        .get(&n.0)
+                        .is_some_and(|s| {
+                            matches!(
+                                self.result.symbols[s.0].kind,
+                                SymbolKind::Local | SymbolKind::Parameter | SymbolKind::Pattern
+                            )
+                        })
+                }
+                NodeKind::Group { value } => n = value,
+                NodeKind::Member { receiver, .. } | NodeKind::Index { receiver, .. } => {
+                    n = receiver
+                }
+                NodeKind::Unary {
+                    operator: Kind::Star,
+                    ..
+                } => return true,
+                _ => return false,
             }
-            NodeKind::Group { value } => self.place(m, value),
-            NodeKind::Unary {
-                operator: Kind::Star,
-                ..
-            } => true,
-            NodeKind::Member { receiver, .. } | NodeKind::Index { receiver, .. } => {
-                self.place(m, receiver)
-            }
-            _ => false,
         }
     }
-    fn writable(&self, m: ModuleId, n: NodeId) -> bool {
-        match self.node(m, n) {
-            NodeKind::Path { .. } => self.result.modules[m.0]
-                .resolutions
-                .get(&n.0)
-                .is_some_and(|s| self.result.symbols[s.0].mutable),
-            NodeKind::Group { value } => self.writable(m, value),
-            NodeKind::Unary {
-                operator: Kind::Star,
-                operand,
-                ..
-            } => self.result.modules[m.0]
-                .node_types
-                .get(&operand.0)
-                .is_some_and(|t| {
-                    matches!(
-                        self.result.types.get(*t),
-                        Some(Type::Reference { mutable: true, .. })
-                    )
-                }),
-            NodeKind::Member { receiver, .. } | NodeKind::Index { receiver, .. } => {
-                self.writable(m, receiver)
+    fn writable(&self, m: ModuleId, mut n: NodeId) -> bool {
+        loop {
+            match self.node(m, n) {
+                NodeKind::Path { .. } => {
+                    return self.result.modules[m.0]
+                        .resolutions
+                        .get(&n.0)
+                        .is_some_and(|s| self.result.symbols[s.0].mutable)
+                }
+                NodeKind::Group { value } => n = value,
+                NodeKind::Member { receiver, .. } | NodeKind::Index { receiver, .. } => {
+                    n = receiver
+                }
+                NodeKind::Unary {
+                    operator: Kind::Star,
+                    operand,
+                    ..
+                } => {
+                    return self.result.modules[m.0]
+                        .node_types
+                        .get(&operand.0)
+                        .is_some_and(|t| {
+                            matches!(
+                                self.result.types.get(*t),
+                                Some(Type::Reference { mutable: true, .. })
+                            )
+                        })
+                }
+                _ => return false,
             }
-            _ => false,
         }
     }
-    fn equality(&self, t: TypeId, depth: usize) -> bool {
-        if depth > 128 {
-            return false;
-        }
-        match self.result.types.get(t) {
-            Some(
-                Type::Bool
-                | Type::Char
-                | Type::Text
-                | Type::Bytes
-                | Type::Integer { .. }
-                | Type::Usize
-                | Type::Float(_),
-            ) => true,
-            Some(Type::Tuple(ts)) => ts
-                .iter()
-                .all(|t| self.copyable(*t, depth + 1) && self.equality(*t, depth + 1)),
-            Some(Type::Nominal(s)) => {
-                self.records.get(s).is_some_and(|fs| {
-                    fs.iter()
-                        .all(|f| self.copyable(f.ty, depth + 1) && self.equality(f.ty, depth + 1))
-                }) || self.enums.get(s).is_some_and(|vs| {
-                    vs.iter().all(|v| {
-                        v.payload
-                            .iter()
-                            .all(|t| self.copyable(*t, depth + 1) && self.equality(*t, depth + 1))
-                    })
-                })
+    fn equality(&self, root: TypeId, _depth: usize) -> bool {
+        // Shared type subgraphs are visited once instead of expanding every field path.
+        let mut stack = vec![(root, false)];
+        let mut seen = BTreeSet::new();
+        while let Some((t, requires_copy)) = stack.pop() {
+            if !seen.insert((t, requires_copy)) {
+                continue;
             }
-            _ => false,
-        }
-    }
-    fn copyable(&self, t: TypeId, depth: usize) -> bool {
-        if depth > 128 {
-            return false;
-        }
-        match self.result.types.get(t) {
-            Some(
-                Type::Bool
-                | Type::Char
-                | Type::Integer { .. }
-                | Type::Usize
-                | Type::Float(_)
-                | Type::Reference { mutable: false, .. },
-            ) => true,
-            Some(Type::Tuple(ts)) => ts.iter().all(|t| self.copyable(*t, depth + 1)),
-            Some(Type::Nominal(s)) => {
-                self.records
-                    .get(s)
-                    .is_some_and(|fs| fs.iter().all(|f| self.copyable(f.ty, depth + 1)))
-                    || self.enums.get(s).is_some_and(|vs| {
-                        vs.iter()
-                            .all(|v| v.payload.iter().all(|t| self.copyable(*t, depth + 1)))
-                    })
+            match self.result.types.get(t) {
+                Some(
+                    Type::Bool | Type::Char | Type::Integer { .. } | Type::Usize | Type::Float(_),
+                ) => {}
+                Some(Type::Text | Type::Bytes) if !requires_copy => {}
+                Some(Type::Tuple(ts)) => stack.extend(ts.iter().map(|t| (*t, true))),
+                Some(Type::Builtin { name, arguments }) if name == "Option" || name == "Result" => {
+                    stack.extend(arguments.iter().map(|t| (*t, true)))
+                }
+                Some(Type::Nominal(s)) => {
+                    if let Some(fs) = self.records.get(s) {
+                        stack.extend(fs.iter().map(|f| (f.ty, true)));
+                    } else if let Some(vs) = self.enums.get(s) {
+                        for v in vs {
+                            stack.extend(v.payload.iter().map(|t| (*t, true)));
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                _ => return false,
             }
-            Some(Type::Builtin { name, arguments }) if name == "Option" || name == "Result" => {
-                arguments.iter().all(|t| self.copyable(*t, depth + 1))
-            }
-            _ => false,
         }
+        true
     }
 }

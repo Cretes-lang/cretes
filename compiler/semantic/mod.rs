@@ -314,13 +314,14 @@ impl Analyzer<'_> {
             || self.result.modules[m.0].imports.contains_key(&text)
             || old.is_some()
         {
+            let diagnostic_count = self.result.diagnostics.len();
             self.error(
                 "M001",
                 name.span,
                 format!("duplicate or reserved declaration `{text}`"),
             );
             if let Some(old) = old {
-                if let Some(d) = self.result.diagnostics.last_mut() {
+                if let Some(d) = self.result.diagnostics.get_mut(diagnostic_count) {
                     d.secondary.push(Label {
                         span: self.result.symbols[old.0].span,
                         message: "previous declaration".into(),
@@ -730,7 +731,6 @@ impl Analyzer<'_> {
     }
     fn check_layouts(&mut self) {
         for i in 0..self.result.symbols.len() {
-            let id = SymbolId(i);
             if !matches!(
                 self.result.symbols[i].kind,
                 SymbolKind::Record | SymbolKind::Enum
@@ -738,57 +738,54 @@ impl Analyzer<'_> {
                 continue;
             }
             let root = self.result.symbols[i].ty;
-            let mut stack = vec![(root, BTreeSet::new())];
-            while let Some((t, mut seen)) = stack.pop() {
-                if !self.tick(self.result.symbols[i].span, seen.len()) {
+            let span = self.result.symbols[i].span;
+            let mut state = BTreeMap::new();
+            let mut stack = vec![(root, false)];
+            while let Some((t, exit)) = stack.pop() {
+                if !self.tick(span, 0) {
                     break;
                 }
-                if !seen.insert(t) {
-                    self.error(
-                        "T001",
-                        self.result.symbols[i].span,
-                        "recursive by-value layout; use owning indirection",
-                    );
-                    break;
+                if exit {
+                    state.insert(t, 2);
+                    continue;
                 }
+                match state.get(&t) {
+                    Some(2) => continue,
+                    Some(1) => {
+                        self.error(
+                            "T001",
+                            span,
+                            "recursive by-value layout; use owning indirection",
+                        );
+                        break;
+                    }
+                    _ => {}
+                }
+                state.insert(t, 1);
+                stack.push((t, true));
                 match self.result.types.get(t).cloned() {
                     Some(Type::Reference { .. }) => {
-                        self.error(
-                            "B002",
-                            self.result.symbols[i].span,
-                            "aggregate storage cannot contain references",
-                        );
+                        self.error("B002", span, "aggregate storage cannot contain references")
                     }
                     Some(Type::Nominal(s)) => {
                         if let Some(fs) = self.records.get(&s) {
-                            for f in fs {
-                                stack.push((f.ty, seen.clone()));
-                            }
+                            stack.extend(fs.iter().map(|f| (f.ty, false)));
                         }
                         if let Some(vs) = self.enums.get(&s) {
                             for v in vs {
-                                for t in &v.payload {
-                                    stack.push((*t, seen.clone()));
-                                }
+                                stack.extend(v.payload.iter().map(|t| (*t, false)));
                             }
                         }
                     }
-                    Some(Type::Tuple(ts)) => {
-                        for t in ts {
-                            stack.push((t, seen.clone()));
-                        }
-                    }
+                    Some(Type::Tuple(ts)) => stack.extend(ts.into_iter().map(|t| (t, false))),
                     Some(Type::Builtin { name, arguments })
                         if name == "Option" || name == "Result" =>
                     {
-                        for t in arguments {
-                            stack.push((t, seen.clone()));
-                        }
+                        stack.extend(arguments.into_iter().map(|t| (t, false)))
                     }
                     _ => {}
                 }
             }
-            let _ = id;
         }
     }
 }

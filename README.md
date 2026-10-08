@@ -2,7 +2,7 @@
 
 The Cretes Programming Language — automation, networking, AI/ML applications and cybersecurity.
 
-This repository contains the **provisional Phase 4 syntax frontend** for `.cretes` sources. It implements the published Phase 3 candidate, not an accepted or stable language release. Phase 2/3 RFC acceptance remains a separate governance gate. There is no program execution, semantic analyzer, type checker, IR, backend or runtime.
+This repository contains the **provisional Phase 4 syntax frontend** for `.cretes` sources. It implements the published Phase 3 candidate, not an accepted or stable language release. Phase 2/3 RFC acceptance remains a separate governance gate. The `feature/phase5-semantics` branch adds an incomplete experimental semantic analyzer. See [the Phase 5 checkpoint](docs/PHASE5.md) for verified coverage and remaining gates. There is no program execution, completed safety checker, IR, backend or runtime.
 
 ## Build and inspect
 

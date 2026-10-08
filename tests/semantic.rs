@@ -496,3 +496,74 @@ fn malformed_semantic_inputs_terminate() {
         assert!(!r.is_valid());
     }
 }
+
+#[test]
+fn mixed_loop_exits() {
+    good("fn f(x:bool)->i64{loop{if x{return 1;}else{break;}}return 2;}");
+}
+#[test]
+fn unreachable_break_does_not_end_loop() {
+    good("fn f()->i64{loop{continue;break;}}");
+}
+#[test]
+fn literal_true_while_diverges() {
+    good("fn f()->i64{while true {}}");
+}
+#[test]
+fn false_while_still_needs_return() {
+    bad("fn f()->i64{while false{return 1;}}", "T001");
+}
+#[test]
+fn conditional_break_requires_return() {
+    bad(
+        "fn f(x:bool)->i64{loop{if x{break;}else{return 1;}}}",
+        "T001",
+    );
+}
+#[test]
+fn nested_loop_break_is_local() {
+    good("fn f()->i64{loop{loop{break;}}}");
+}
+#[test]
+fn match_breaks_leave_loop() {
+    bad(
+        "fn f(x:bool)->i64{loop{match x{true=>{break;}false=>{return 1;}}}}",
+        "T001",
+    );
+}
+#[test]
+fn branch_return_continue_diverges_or_returns() {
+    good("fn f(x:bool)->i64{loop{if x{return 1;}else{continue;}}}");
+}
+#[test]
+fn for_may_be_empty() {
+    bad("fn f(x:Seq[i64])->i64{for y in x{return y;}}", "T001");
+}
+#[test]
+fn literal_true_branch_returns() {
+    good("fn f()->i64{if true{return 1;}}");
+}
+
+#[test]
+fn semantic_handoff_preserves_contracts() {
+    let r = modules(&[(
+        "test",
+        "pub struct P{pub x:i64,} pub enum E{V(i64),} fn f(p:&i64)->&i64 from p{return p;}",
+    )]);
+    assert!(r.is_valid(), "{:?}", r.diagnostics);
+    let sig = r.signatures.values().next().unwrap();
+    assert_eq!(sig.from, Some(0));
+    assert_eq!(sig.parameters.len(), 1);
+    assert_eq!(r.records.values().next().unwrap()[0].name, "x");
+    assert_eq!(r.enums.values().next().unwrap()[0].payload.len(), 1);
+}
+#[test]
+fn value_categories_distinguish_mutability() {
+    use cretes_frontend::semantic::ValueCategory;
+    let r = modules(&[("test", "fn f()->i64{let x=1;var y=2;y=x+1;return y;}")]);
+    assert!(r.is_valid(), "{:?}", r.diagnostics);
+    let c = &r.modules[0].value_categories;
+    assert!(c.values().any(|x| *x == ValueCategory::Value));
+    assert!(c.values().any(|x| *x == ValueCategory::ReadOnlyPlace));
+    assert!(c.values().any(|x| *x == ValueCategory::WritablePlace));
+}

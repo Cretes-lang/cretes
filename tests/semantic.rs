@@ -430,3 +430,69 @@ fn invalid_target_width() {
     );
     assert!(r.diagnostics.iter().any(|d| d.code == "T001"));
 }
+
+#[test]
+fn shared_type_graph_does_not_expand_exponentially() {
+    let mut s = String::from("struct T0{a:i64,b:i64,}");
+    for i in 1..40 {
+        s.push_str(&format!("struct T{i}{{a:T{},b:T{},}}", i - 1, i - 1));
+    }
+    s.push_str("fn equal(a:T39,b:T39)->bool{return a==b;}");
+    good(&s);
+}
+#[test]
+fn copyable_option_equality() {
+    good("fn f(a:Option[i64],b:Option[i64])->bool{return a==b;}");
+}
+#[test]
+fn noncopyable_option_equality() {
+    bad(
+        "fn f(a:Option[text],b:Option[text])->bool{return a==b;}",
+        "T001",
+    );
+}
+#[test]
+fn diagnostic_labels_are_bounded() {
+    let mut sm = SourceManager::default();
+    let s = format!("fn f()->(){{{}}}", "let x=1;".repeat(1000));
+    let id = sm.add("test", s.as_bytes());
+    let mut options = SemanticOptions::default();
+    options.limits.diagnostics = 1;
+    let r = analyze(
+        &[ModuleInput {
+            identity: "test",
+            source: sm.get(id).unwrap(),
+        }],
+        options,
+    );
+    assert_eq!(r.diagnostics.len(), 1);
+    assert!(r.diagnostics[0].secondary.len() <= 1);
+}
+#[test]
+fn semantic_fuel_limit() {
+    let mut sm = SourceManager::default();
+    let id = sm.add("test", "fn f()->i64{return 1;}".as_bytes());
+    let r = analyze(
+        &[ModuleInput {
+            identity: "test",
+            source: sm.get(id).unwrap(),
+        }],
+        SemanticOptions {
+            work: 1,
+            ..SemanticOptions::default()
+        },
+    );
+    assert!(r.diagnostics.iter().any(|d| d.code == "R001"));
+}
+#[test]
+fn malformed_semantic_inputs_terminate() {
+    for source in [
+        "fn",
+        "fn f(x:)->{",
+        "enum E{V(bool),} fn f(x:E)->(){match x{E::V()=>{} E::V(true,false)=>{} _=>{}}}",
+        "fn f()->(){let a=((((;}",
+    ] {
+        let r = modules(&[("test", source)]);
+        assert!(!r.is_valid());
+    }
+}

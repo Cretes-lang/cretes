@@ -25,6 +25,8 @@ symbol acceptance is introduced. Modules are sorted before collection.
 - Source-linked diagnostics using the candidate M001/T001/T002/B002/C001/R001
   conventions. Shared Phase 4 source, spans, AST and diagnostic infrastructure.
 - Map/Set built-in key restrictions and aggregate reference-storage restrictions.
+- Iterative place/type/layout traversal avoids recursive stack growth and repeated
+  expansion of shared type graphs; duplicate-declaration labels respect diagnostic limits.
 
 The result retains ASTs, symbols/scopes, interned types, expression type tables,
 resolved-symbol tables, constants and diagnostics. `is_valid()` currently means
@@ -35,7 +37,7 @@ move/loan safety or full language validity**. Rust APIs and dumps remain experim
 
 Rust 1.85.1, Linux, 2026-10-08:
 
-- `cargo test --locked`: 237 tests passed (158 existing + 79 semantic).
+- `cargo test --locked`: 243 tests passed (158 existing + 85 semantic).
 - `cargo fmt --all -- --check`: passed.
 - `cargo clippy --all-targets --locked -- -D warnings`: passed.
 

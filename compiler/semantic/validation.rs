@@ -55,18 +55,18 @@ impl Analyzer<'_> {
             let mut exposed = vec![];
             match self.result.symbols[i].kind {
                 SymbolKind::Function => {
-                    if let Some(s) = self.signatures.get(&id) {
+                    if let Some(s) = self.result.signatures.get(&id) {
                         exposed.extend(s.parameters.iter().map(|t| (*t, span)));
                         exposed.push((s.result, span));
                     }
                 }
                 SymbolKind::Record => {
-                    if let Some(fs) = self.records.get(&id) {
+                    if let Some(fs) = self.result.records.get(&id) {
                         exposed.extend(fs.iter().filter(|f| f.public).map(|f| (f.ty, f.span)));
                     }
                 }
                 SymbolKind::Enum => {
-                    if let Some(vs) = self.enums.get(&id) {
+                    if let Some(vs) = self.result.enums.get(&id) {
                         for v in vs {
                             exposed.extend(v.payload.iter().map(|t| (*t, v.span)));
                         }

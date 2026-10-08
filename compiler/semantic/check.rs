@@ -1,11 +1,36 @@
 use super::*;
 use crate::token::Kind;
+/// Reachable exits from a statement; an empty set means divergence.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Flow {
-    Next,
-    Return,
-    Break,
-    Continue,
+struct Flow(u8);
+impl Flow {
+    const NEXT: Self = Self(1);
+    const RETURN: Self = Self(2);
+    const BREAK: Self = Self(4);
+    const CONTINUE: Self = Self(8);
+    fn contains(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+    fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+    fn then(self, other: Self) -> Self {
+        if self.contains(Self::NEXT) {
+            Self((self.0 & !Self::NEXT.0) | other.0)
+        } else {
+            self
+        }
+    }
+    fn loop_exit(self, may_skip: bool) -> Self {
+        Self(
+            (self.0 & Self::RETURN.0)
+                | if may_skip || self.contains(Self::BREAK) {
+                    Self::NEXT.0
+                } else {
+                    0
+                },
+        )
+    }
 }
 pub(super) struct FunctionContext {
     pub(super) module: ModuleId,
@@ -22,7 +47,7 @@ impl Analyzer<'_> {
         else {
             return;
         };
-        let Some(sig) = self.signatures.get(&id).cloned() else {
+        let Some(sig) = self.result.signatures.get(&id).cloned() else {
             return;
         };
         let scope = self.child_scope(m, self.result.modules[m.0].scope);
@@ -39,14 +64,13 @@ impl Analyzer<'_> {
             loops: 0,
         };
         let flow = self.block(&mut ctx, scope, body, false, 0);
-        if flow == Flow::Next && !self.is_unit(sig.result) {
+        if flow.contains(Flow::NEXT) && !self.is_unit(sig.result) {
             self.error(
                 "T001",
                 self.span(m, body),
                 "not every reachable path returns a value or diverges",
             );
         }
-        let _ = sig.from; // Provenance relation is retained for the dedicated safety pass.
     }
     fn child_scope(&mut self, m: ModuleId, parent: ScopeId) -> ScopeId {
         let id = ScopeId(self.result.scopes.len());
@@ -124,7 +148,7 @@ impl Analyzer<'_> {
     ) -> Flow {
         let m = ctx.module;
         if !self.tick(self.span(m, n), depth) {
-            return Flow::Next;
+            return Flow::NEXT;
         }
         let scope = if nested {
             self.child_scope(m, parent)
@@ -132,14 +156,12 @@ impl Analyzer<'_> {
             parent
         };
         let NodeKind::Block { statements } = self.node(m, n) else {
-            return Flow::Next;
+            return Flow::NEXT;
         };
-        let mut flow = Flow::Next;
+        let mut flow = Flow::NEXT;
         for s in statements {
             let next = self.statement(ctx, scope, s, depth + 1);
-            if flow == Flow::Next {
-                flow = next;
-            }
+            flow = flow.then(next);
         }
         flow
     }
@@ -152,7 +174,7 @@ impl Analyzer<'_> {
     ) -> Flow {
         let m = ctx.module;
         if !self.tick(self.span(m, n), depth) {
-            return Flow::Next;
+            return Flow::NEXT;
         }
         match self.node(m, n) {
             NodeKind::Binding {
@@ -183,7 +205,7 @@ impl Analyzer<'_> {
                     self.unit()
                 };
                 self.compatible(m, n, t, ctx.result);
-                return Flow::Return;
+                return Flow::RETURN;
             }
             NodeKind::Assignment { place, value } => {
                 let t = self.expression(ctx, scope, place, None, depth + 1);
@@ -211,25 +233,30 @@ impl Analyzer<'_> {
                 let a = self.block(ctx, scope, then_block, true, depth + 1);
                 let b = otherwise
                     .map(|e| self.statement(ctx, scope, e, depth + 1))
-                    .unwrap_or(Flow::Next);
-                if a == b {
-                    return a;
-                }
+                    .unwrap_or(Flow::NEXT);
+                return match self.boolean_literal(m, condition) {
+                    Some(true) => a,
+                    Some(false) => b,
+                    None => a.union(b),
+                };
             }
             NodeKind::While { condition, body } => {
                 let boolean = self.result.types.intern(Type::Bool);
                 self.expression(ctx, scope, condition, Some(boolean), depth + 1);
                 ctx.loops += 1;
-                self.block(ctx, scope, body, true, depth + 1);
+                let body_flow = self.block(ctx, scope, body, true, depth + 1);
                 ctx.loops -= 1;
+                return match self.boolean_literal(m, condition) {
+                    Some(false) => Flow::NEXT,
+                    Some(true) => body_flow.loop_exit(false),
+                    None => body_flow.loop_exit(true),
+                };
             }
             NodeKind::Loop { body } => {
                 ctx.loops += 1;
-                self.block(ctx, scope, body, true, depth + 1);
+                let body_flow = self.block(ctx, scope, body, true, depth + 1);
                 ctx.loops -= 1;
-                if !self.has_break(m, body) {
-                    return Flow::Return;
-                }
+                return body_flow.loop_exit(false);
             }
             NodeKind::For {
                 name,
@@ -266,38 +293,40 @@ impl Analyzer<'_> {
                 self.result.symbols[s.0].ty = element;
                 self.states[s.0] = 2;
                 ctx.loops += 1;
-                self.block(ctx, child, body, false, depth + 1);
+                let body_flow = self.block(ctx, child, body, false, depth + 1);
                 ctx.loops -= 1;
+                return body_flow.loop_exit(true);
             }
             NodeKind::Break => {
                 if ctx.loops == 0 {
                     self.error("T001", self.span(m, n), "break outside a loop");
                 }
-                return Flow::Break;
+                return Flow::BREAK;
             }
             NodeKind::Continue => {
                 if ctx.loops == 0 {
                     self.error("T001", self.span(m, n), "continue outside a loop");
                 }
-                return Flow::Continue;
+                return Flow::CONTINUE;
             }
             NodeKind::Match { subject, arms } => {
                 let t = self.expression(ctx, scope, subject, None, depth + 1);
                 let mut patterns = vec![];
-                let mut all_return = true;
+                let mut flow = Flow(0);
                 for arm in arms {
                     if let NodeKind::Arm { pattern, body } = self.node(m, arm) {
                         patterns.push(pattern);
                         let child = self.child_scope(m, scope);
                         self.pattern(ctx, child, pattern, t, depth + 1);
-                        all_return &=
-                            self.block(ctx, child, body, false, depth + 1) == Flow::Return;
+                        flow = flow.union(self.block(ctx, child, body, false, depth + 1));
                     }
                 }
                 self.match_coverage(m, n, t, &patterns);
-                if all_return && !patterns.is_empty() {
-                    return Flow::Return;
-                }
+                return if patterns.is_empty() {
+                    Flow::NEXT
+                } else {
+                    flow
+                };
             }
             NodeKind::Error => {}
             _ => self.error(
@@ -306,28 +335,17 @@ impl Analyzer<'_> {
                 "unexpected node in statement analysis",
             ),
         }
-        Flow::Next
+        Flow::NEXT
     }
-    fn has_break(&self, m: ModuleId, n: NodeId) -> bool {
-        let mut stack = vec![n];
-        while let Some(n) = stack.pop() {
+    fn boolean_literal(&self, m: ModuleId, mut n: NodeId) -> Option<bool> {
+        loop {
             match self.node(m, n) {
-                NodeKind::Break => return true,
-                NodeKind::Block { statements } => stack.extend(statements),
-                NodeKind::If {
-                    then_block,
-                    otherwise,
-                    ..
-                } => {
-                    stack.push(then_block);
-                    stack.extend(otherwise);
-                }
-                NodeKind::Match { arms, .. } => stack.extend(arms),
-                NodeKind::Arm { body, .. } => stack.push(body),
-                _ => {}
+                NodeKind::Group { value } => n = value,
+                NodeKind::Literal { kind: Kind::True } => return Some(true),
+                NodeKind::Literal { kind: Kind::False } => return Some(false),
+                _ => return None,
             }
         }
-        false
     }
     pub(super) fn integer(&self, t: TypeId) -> Option<(bool, u8)> {
         match self.result.types.get(t) {
@@ -553,7 +571,7 @@ impl Analyzer<'_> {
                         Some(Type::Nominal(id)) => *id,
                         _ => s,
                     };
-                    if let Some(fs) = self.records.get(&nominal).cloned() {
+                    if let Some(fs) = self.result.records.get(&nominal).cloned() {
                         let mut seen = BTreeSet::new();
                         for f in fields {
                             if let NodeKind::FieldValue { name, value } = self.node(m, f) {
@@ -597,6 +615,7 @@ impl Analyzer<'_> {
                 let text = self.spelling(m, &name);
                 let field = match self.result.types.get(t) {
                     Some(Type::Nominal(s)) => self
+                        .result
                         .records
                         .get(s)
                         .and_then(|fs| fs.iter().find(|f| f.name == text))
@@ -658,6 +677,16 @@ impl Analyzer<'_> {
             self.compatible(m, n, ty, e);
         }
         self.result.modules[m.0].node_types.insert(n.0, ty);
+        let category = if !self.place(m, n) {
+            ValueCategory::Value
+        } else if self.writable(m, n) {
+            ValueCategory::WritablePlace
+        } else {
+            ValueCategory::ReadOnlyPlace
+        };
+        self.result.modules[m.0]
+            .value_categories
+            .insert(n.0, category);
         ty
     }
     fn literal(
@@ -839,7 +868,7 @@ impl Analyzer<'_> {
             if let Some(s) = type_symbol {
                 let t = self.result.symbols[s.0].ty;
                 if let Some(Type::Nominal(e)) = self.result.types.get(t) {
-                    if let Some(vs) = self.enums.get(e) {
+                    if let Some(vs) = self.result.enums.get(e) {
                         let v = vs
                             .iter()
                             .find(|v| v.name == *parts.last().unwrap())
@@ -873,7 +902,7 @@ impl Analyzer<'_> {
             return Types::ERROR;
         };
         self.result.modules[m.0].resolutions.insert(callee.0, s);
-        if let Some(sig) = self.signatures.get(&s).cloned() {
+        if let Some(sig) = self.result.signatures.get(&s).cloned() {
             if args.len() != sig.parameters.len() {
                 self.error(
                     "T001",
@@ -969,6 +998,7 @@ impl Analyzer<'_> {
                 }
                 let payload = match self.result.types.get(base).cloned() {
                     Some(Type::Nominal(s)) => self
+                        .result
                         .enums
                         .get(&s)
                         .and_then(|vs| vs.iter().find(|v| v.name == name))
@@ -1088,9 +1118,9 @@ impl Analyzer<'_> {
                     stack.extend(arguments.iter().map(|t| (*t, true)))
                 }
                 Some(Type::Nominal(s)) => {
-                    if let Some(fs) = self.records.get(s) {
+                    if let Some(fs) = self.result.records.get(s) {
                         stack.extend(fs.iter().map(|f| (f.ty, true)));
-                    } else if let Some(vs) = self.enums.get(s) {
+                    } else if let Some(vs) = self.result.enums.get(s) {
                         for v in vs {
                             stack.extend(v.payload.iter().map(|t| (*t, true)));
                         }

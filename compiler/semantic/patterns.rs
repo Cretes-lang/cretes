@@ -90,7 +90,7 @@ impl Analyzer<'_> {
         match self.result.types.get(t) {
             Some(Type::Bool) => Some(vec![("true".into(), vec![]), ("false".into(), vec![])]),
             Some(Type::Tuple(ts)) => Some(vec![("tuple".into(), ts.clone())]),
-            Some(Type::Nominal(s)) => self.enums.get(s).map(|vs| {
+            Some(Type::Nominal(s)) => self.result.enums.get(s).map(|vs| {
                 vs.iter()
                     .map(|v| (v.name.clone(), v.payload.clone()))
                     .collect()

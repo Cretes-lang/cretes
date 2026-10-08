@@ -64,6 +64,12 @@ pub struct Scope {
     pub module: ModuleId,
     pub bindings: BTreeMap<String, SymbolId>,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ValueCategory {
+    Value,
+    ReadOnlyPlace,
+    WritablePlace,
+}
 #[derive(Debug)]
 pub struct Module {
     pub identity: String,
@@ -72,6 +78,7 @@ pub struct Module {
     pub scope: ScopeId,
     pub node_types: BTreeMap<usize, TypeId>,
     pub resolutions: BTreeMap<usize, SymbolId>,
+    pub value_categories: BTreeMap<usize, ValueCategory>,
 }
 #[derive(Debug)]
 pub struct SemanticResult {
@@ -81,6 +88,9 @@ pub struct SemanticResult {
     pub types: Types,
     pub constants: BTreeMap<SymbolId, ConstantValue>,
     pub diagnostics: Vec<Diagnostic>,
+    pub signatures: BTreeMap<SymbolId, Signature>,
+    pub records: BTreeMap<SymbolId, Vec<Field>>,
+    pub enums: BTreeMap<SymbolId, Vec<Variant>>,
 }
 impl SemanticResult {
     /// Name/type analysis only; does not certify the later move/loan safety stage.
@@ -101,42 +111,49 @@ impl SemanticResult {
                 v.name, v.kind, v.ty.0, v.module.0
             ));
         }
+        for (id, sig) in &self.signatures {
+            s.push_str(&format!("function {}: {sig:?}\n", id.0));
+        }
         for m in &self.modules {
             s.push_str(&format!("module {}\n", m.identity));
             for (n, t) in &m.node_types {
                 s.push_str(&format!("  node {n}: type {}\n", t.0));
             }
+            for (n, id) in &m.resolutions {
+                s.push_str(&format!("  node {n}: symbol {}\n", id.0));
+            }
+            for (n, category) in &m.value_categories {
+                s.push_str(&format!("  node {n}: {category:?}\n"));
+            }
         }
         s
     }
 }
-#[derive(Clone)]
-struct Signature {
-    parameters: Vec<TypeId>,
-    result: TypeId,
-    from: Option<usize>,
+/// Resolved function contract; `from` indexes the source reference parameter.
+#[derive(Clone, Debug)]
+pub struct Signature {
+    pub parameters: Vec<TypeId>,
+    pub result: TypeId,
+    pub from: Option<usize>,
 }
-#[derive(Clone)]
-struct Field {
-    name: String,
-    ty: TypeId,
-    public: bool,
-    span: Span,
+#[derive(Clone, Debug)]
+pub struct Field {
+    pub name: String,
+    pub ty: TypeId,
+    pub public: bool,
+    pub span: Span,
 }
-#[derive(Clone)]
-struct Variant {
-    name: String,
-    payload: Vec<TypeId>,
-    span: Span,
+#[derive(Clone, Debug)]
+pub struct Variant {
+    pub name: String,
+    pub payload: Vec<TypeId>,
+    pub span: Span,
 }
 struct Analyzer<'a> {
     sources: Vec<&'a SourceFile>,
     result: SemanticResult,
     options: SemanticOptions,
     states: Vec<u8>,
-    signatures: BTreeMap<SymbolId, Signature>,
-    records: BTreeMap<SymbolId, Vec<Field>>,
-    enums: BTreeMap<SymbolId, Vec<Variant>>,
     constant_states: BTreeMap<SymbolId, u8>,
     work: usize,
     exhausted: bool,
@@ -153,12 +170,12 @@ pub fn analyze(inputs: &[ModuleInput<'_>], options: SemanticOptions) -> Semantic
             types: Types::default(),
             constants: BTreeMap::new(),
             diagnostics: vec![],
+            signatures: BTreeMap::new(),
+            records: BTreeMap::new(),
+            enums: BTreeMap::new(),
         },
         options,
         states: vec![],
-        signatures: BTreeMap::new(),
-        records: BTreeMap::new(),
-        enums: BTreeMap::new(),
         constant_states: BTreeMap::new(),
         work: 0,
         exhausted: false,
@@ -209,6 +226,7 @@ pub fn analyze(inputs: &[ModuleInput<'_>], options: SemanticOptions) -> Semantic
             scope,
             node_types: BTreeMap::new(),
             resolutions: BTreeMap::new(),
+            value_categories: BTreeMap::new(),
         });
         a.sources.push(input.source);
         identities.insert(input.identity.to_string(), m);
@@ -544,7 +562,7 @@ impl Analyzer<'_> {
                         });
                     }
                 }
-                self.records.insert(id, fs);
+                self.result.records.insert(id, fs);
                 ty
             }
             NodeKind::Enum { variants, .. } => {
@@ -577,7 +595,7 @@ impl Analyzer<'_> {
                         "enum requires at least one variant",
                     );
                 }
-                self.enums.insert(id, vs);
+                self.result.enums.insert(id, vs);
                 ty
             }
             NodeKind::Function {
@@ -623,7 +641,7 @@ impl Analyzer<'_> {
                         }
                     }
                 }
-                self.signatures.insert(
+                self.result.signatures.insert(
                     id,
                     Signature {
                         parameters: ps,
@@ -768,10 +786,10 @@ impl Analyzer<'_> {
                         self.error("B002", span, "aggregate storage cannot contain references")
                     }
                     Some(Type::Nominal(s)) => {
-                        if let Some(fs) = self.records.get(&s) {
+                        if let Some(fs) = self.result.records.get(&s) {
                             stack.extend(fs.iter().map(|f| (f.ty, false)));
                         }
-                        if let Some(vs) = self.enums.get(&s) {
+                        if let Some(vs) = self.result.enums.get(&s) {
                             for v in vs {
                                 stack.extend(v.payload.iter().map(|t| (*t, false)));
                             }

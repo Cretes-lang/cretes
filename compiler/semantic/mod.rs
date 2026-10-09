@@ -3,6 +3,7 @@
 mod constants;
 mod entry;
 pub use entry::analyze_entry;
+mod obligations;
 mod patterns;
 mod provenance;
 mod types;
@@ -265,6 +266,7 @@ pub fn analyze(inputs: &[ModuleInput<'_>], options: SemanticOptions) -> Semantic
     for i in 0..a.result.symbols.len() {
         if a.result.symbols[i].kind == SymbolKind::Function {
             a.check_return_provenance(SymbolId(i));
+            a.check_result_obligations(SymbolId(i));
         }
     }
     a.validate_types();
@@ -290,6 +292,15 @@ fn valid_identity(s: &str) -> bool {
 impl Analyzer<'_> {
     fn error(&mut self, code: &'static str, span: Span, message: impl Into<String>) {
         if self.result.diagnostics.len() < self.options.limits.diagnostics.clamp(1, 1000) {
+            let mut message = message.into();
+            if message.len() > 2048 {
+                let mut end = 2048;
+                while !message.is_char_boundary(end) {
+                    end -= 1;
+                }
+                message.truncate(end);
+                message.push('…');
+            }
             self.result.diagnostics.push(Diagnostic::error(
                 code,
                 span,

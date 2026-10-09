@@ -49,7 +49,7 @@ move/loan safety or full language validity**. Rust APIs and dumps remain experim
 
 Rust 1.85.1, Linux, 2026-10-09:
 
-- `cargo test --locked`: 315 tests passed (152 semantic + 12 CLI + 151 other frontend).
+- `cargo test --locked`: 276 tests passed (158 existing + 118 semantic).
 - `cargo fmt --all -- --check`: passed.
 - `cargo clippy --all-targets --locked -- -D warnings`: passed.
 
@@ -60,14 +60,14 @@ changes require their own CI confirmation; these local results do not imply it.
 
 ## Remaining work and known limitations
 
-- Complete projection-aware Result obligations and collection iteration flow.
+- Implement bound Result obligations and expand control-flow integration tests.
 - Complete ownership/loan-stage integration and resource review throughout
   recursive helpers. Direct return provenance is now checked, but there is no
   completed borrow checker.
-- Finish a typed handoff that exposes all later-stage safety metadata. The
-  experimental inspection command is implemented; it is not `cretes check`.
-- Expand adversarial semantic cases beyond the 14 canonical examples now covered
-  with explicit test-only contracts for conceptual standard-library APIs.
+- Finish a typed handoff that exposes all later-stage metadata and a documented
+  inspection command without implying production `cretes check` semantics.
+- Expand canonical semantic validation using explicit test-only contracts for
+  conceptual standard-library APIs; the existing 14 examples remain syntax tests.
 - Complete semantic traceability, fuzz/adversarial review, measured performance
   baseline, cross-platform CI and full integration review.
 - Reconcile any accepted specification changes before formal closure.
@@ -89,79 +89,3 @@ unimplemented safety boundary; success must not be advertised as memory safety.
 The PR was marked ready for review by the maintainer after the previous
 checkpoint. That UI status does not satisfy the three unchecked completion
 gates. New commits require fresh review and their own cross-platform CI evidence.
-
-## Further integration checkpoint — 2026-10-09
-
-Local suite: **313 passing tests** (150 semantic, 12 CLI, 151 other frontend).
-Formatting, Clippy with warnings denied and release build passed locally for
-this revision; earlier cross-platform checks do not cover these edits.
-
-The first whole-owner Result dataflow pass diagnoses unused bindings/parameters,
-overwrite, scope exit, return/propagation exits, branch joins, loop exits,
-wildcard dropping and transfers through whole aggregates. This pass is not yet
-fully conformant: it collapses aggregate payload obligations to one owner bit.
-Partial field updates, mixed empty/nonempty nested payloads and collection
-iteration therefore need more precise projection tracking. These are genuine
-completion blockers, not new language restrictions. Do not treat a conservative
-T003 rejection in these cases as a normative language rule.
-
-`cretes-front analyze --target-bits 64 --module app path.cretes --entry app`
-provides experimental semantic inspection. Repeat `--module identity path` for
-an explicit module map; omit `--entry` for library analysis. JSON diagnostics
-are optional. Exit codes are 0 (implemented checks pass), 1 (source diagnostics),
-2 (usage/I/O failure). Exit 0 does not certify full validity or move/loan safety.
-No implicit library, package manifest or filesystem search is introduced.
-
-All 14 unchanged canonical examples now pass the implemented semantic checks.
-Nine are self-contained. Five use explicit test-only library contracts in
-`tests/semantic.rs`; the collection signatures are concrete for those examples,
-not generic standard-library implementations. Divergent contract bodies exist
-only to supply test signatures. They do not implement library behavior.
-
-### Measured baseline
-
-`cargo bench --bench semantic --locked`, Rust 1.85.1, release, Linux,
-2026-10-09. One source, 46,280 bytes, 500 distinct functions, seven samples.
-End-to-end `analyze` includes parsing, type checking, constants and dataflow.
-
-| Target width | Minimum | Median | Maximum |
-| --- | ---: | ---: | ---: |
-| 32 | 6,689 us | 8,985 us | 18,162 us |
-| 64 | 5,931 us | 6,673 us | 7,293 us |
-
-These are local observations, not portable performance promises. Memory use was
-not measured. The fixture is reproducible in `benchmarks/semantic.rs`.
-
-### Review findings still open
-
-- Replace whole-owner Result bits with projection-aware obligations, including
-  collection iteration and early loop exits. Keep positive conformance tests for
-  empty nested payloads so conservative false rejections cannot hide regressions.
-- Cumulative input and retained AST budgets are now implemented (see below).
-  Continue auditing pattern-matrix/state-copy amplification and peak working
-  memory. Do not claim a completed security review.
-- Finish the documented handoff to the separate ownership/loan stage and verify
-  that no consumer mistakes these partial checks for a full safety certificate.
-- Complete the final requirements traceability/diff review and obtain checks on
-  the eventual final revision, then reconcile accepted Phase 2/3 decisions.
-
-The three Phase 5 completion gates remain unchecked.
-
-## Session resource review — 2026-10-09
-
-The semantic API now preflights module count and cumulative source/identity bytes
-before allocating the sorted module index or parsing. Defaults are 4096 modules,
-64 MiB total input and 1,000,000 retained AST nodes shared across the session.
-Each module also retains the existing per-file limits. Checked arithmetic rejects
-overflow. Callers may configure these limits; caller-owned source snapshots are
-outside the analyzer allocation boundary. The CLI bounds each read by the lesser
-of the per-file allowance and remaining session allowance, with one detection
-byte, and rejects excess before adding a source snapshot.
-
-Two boundary regressions verify exact-budget acceptance, one-byte excess,
-module-count preflight, and a node budget shared across modules. Local suite:
-315 tests (152 semantic, 12 CLI, 151 other frontend), all passing. Formatting and
-Clippy pass. This closes the missing cumulative input/AST budget finding; it does
-not close the aggregate Result precision or complete semantic security review.
-The limits bound structural input, not exact process RSS. No peak-memory claim
-is made, and large user-configured limits remain the caller's responsibility.

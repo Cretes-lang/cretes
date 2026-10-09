@@ -23,10 +23,6 @@ pub struct SemanticOptions {
     pub target_pointer_bits: u8,
     pub limits: Limits,
     pub modules: usize,
-    /// Total input bytes, including logical identities, before parsing.
-    pub session_source_bytes: usize,
-    /// Total retained syntax nodes across all modules.
-    pub session_nodes: usize,
     pub work: usize,
 }
 impl Default for SemanticOptions {
@@ -35,8 +31,6 @@ impl Default for SemanticOptions {
             target_pointer_bits: 64,
             limits: Limits::default(),
             modules: 4096,
-            session_source_bytes: 64 * 1024 * 1024,
-            session_nodes: 1_000_000,
             work: 4_000_000,
         }
     }
@@ -190,23 +184,6 @@ pub fn analyze(inputs: &[ModuleInput<'_>], options: SemanticOptions) -> Semantic
         work: 0,
         exhausted: false,
     };
-    // Reject the session before allocating the ordered index or any ASTs.
-    // Caller-owned snapshots are outside this API's allocation boundary.
-    let mut source_bytes = 0usize;
-    for (index, input) in inputs.iter().enumerate() {
-        let size = input.source.bytes().len().checked_add(input.identity.len());
-        let total = size.and_then(|size| source_bytes.checked_add(size));
-        if index >= options.modules || total.is_none_or(|n| n > options.session_source_bytes) {
-            a.error(
-                "R001",
-                input.source.span(0, 0),
-                "semantic session input budget exceeded",
-            );
-            return a.result;
-        }
-        source_bytes = total.unwrap_or(0);
-    }
-    let mut remaining_nodes = options.session_nodes;
     let mut ordered: Vec<_> = inputs.iter().collect();
     ordered.sort_by_key(|x| x.identity);
     let mut identities = BTreeMap::new();
@@ -230,14 +207,7 @@ pub fn analyze(inputs: &[ModuleInput<'_>], options: SemanticOptions) -> Semantic
             );
             continue;
         }
-        if remaining_nodes == 0 {
-            a.error("R001", span, "semantic session AST node budget exceeded");
-            return a.result;
-        }
-        let mut limits = options.limits;
-        limits.nodes = limits.nodes.min(remaining_nodes);
-        let parsed = crate::parse_source(input.source, limits);
-        remaining_nodes = remaining_nodes.saturating_sub(parsed.ast.nodes.len());
+        let parsed = crate::parse_source(input.source, options.limits);
         let remaining = options
             .limits
             .diagnostics

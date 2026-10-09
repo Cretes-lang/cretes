@@ -17,3 +17,8 @@ path = "compiler/main.rs"
 name = "baseline"
 path = "benchmarks/baseline.rs"
 harness = false
+
+[[bench]]
+name = "semantic"
+path = "benchmarks/semantic.rs"
+harness = false

@@ -106,3 +106,71 @@ fn bounded_source_loading() {
     );
     assert_eq!(run("lex", &f, true).status.code(), Some(1));
 }
+
+fn analyze_file(input: &Input, extra: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_cretes-front"))
+        .args(["analyze", "--target-bits", "64", "--module", "app"])
+        .arg(&input.0)
+        .args(extra)
+        .output()
+        .unwrap()
+}
+#[test]
+fn semantic_cli_dump_is_deterministic() {
+    let input = Input::new(b"fn main()->i32{return 0;}");
+    let a = analyze_file(&input, &["--entry", "app"]);
+    let b = analyze_file(&input, &["--entry", "app"]);
+    assert!(a.status.success());
+    assert_eq!(a.stdout, b.stdout);
+    assert!(String::from_utf8(a.stdout).unwrap().contains("module app"));
+}
+#[test]
+fn semantic_cli_reports_result_obligation_as_json() {
+    let input = Input::new(b"fn f(r:Result[i64,text])->(){}");
+    let out = analyze_file(&input, &["--json-diagnostics"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8(out.stderr)
+        .unwrap()
+        .contains("\"code\":\"T003\""));
+}
+#[test]
+fn semantic_cli_requires_explicit_target_and_modules() {
+    for args in [
+        vec!["analyze"],
+        vec!["analyze", "--target-bits", "64"],
+        vec!["analyze", "--target-bits", "16"],
+        vec!["analyze", "--unknown"],
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_cretes-front"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2));
+    }
+}
+#[test]
+fn semantic_cli_missing_entry_rejected() {
+    let input = Input::new(b"fn main()->i32{return 0;}");
+    assert_eq!(
+        analyze_file(&input, &["--entry", "missing"]).status.code(),
+        Some(1)
+    );
+}
+#[test]
+fn semantic_cli_multimodule_map() {
+    let a = Input::new(b"pub fn value()->i32{return 0;}");
+    let b = Input::new(b"import support;fn main()->i32{return support::value();}");
+    let out = Command::new(env!("CARGO_BIN_EXE_cretes-front"))
+        .args(["analyze", "--target-bits", "32", "--module", "app"])
+        .arg(&b.0)
+        .args(["--module", "support"])
+        .arg(&a.0)
+        .args(["--entry", "app"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

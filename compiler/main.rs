@@ -11,7 +11,7 @@ fn run() -> Result<bool, String> {
         return run_semantic(&args[1..]);
     }
     if args.len() == 1 && args[0] == "--help" {
-        println!("cretes-front (experimental candidate frontend)\nUsage: cretes-front <lex|parse> <file.cretes> [--json-diagnostics]\nSemantic inspection: cretes-front analyze --target-bits <32|64> --module <identity> <file> [--module <identity> <file> ...] [--entry <identity>] [--json-diagnostics]\nNot cretes check/build/run. Semantic success does not certify complete language validity or move/loan safety. No execution.");
+        println!("cretes-front (experimental candidate frontend)\nUsage: cretes-front <lex|parse> <file.cretes> [--json-diagnostics]\nSemantic inspection: cretes-front analyze --target-bits <32|64[...]
         return Ok(true);
     }
     if !(args.len() == 2 || args.len() == 3)
@@ -127,7 +127,7 @@ fn run_semantic(args: &[std::ffi::OsString]) -> Result<bool, String> {
     }
     let mut sources = SourceManager::default();
     let mut ids = Vec::new();
-    let mut remaining_bytes = options.session_source_bytes;
+    let mut remaining_bytes = options.limits.source_bytes;
     for (identity, path) in &specifications {
         remaining_bytes = remaining_bytes
             .checked_sub(identity.len())

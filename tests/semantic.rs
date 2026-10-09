@@ -567,3 +567,154 @@ fn value_categories_distinguish_mutability() {
     assert!(c.values().any(|x| *x == ValueCategory::ReadOnlyPlace));
     assert!(c.values().any(|x| *x == ValueCategory::WritablePlace));
 }
+
+#[test]
+fn enum_constructor_respects_local_shadowing() {
+    bad(
+        "enum E { A, } fn f()->E { let E=1; return E::A(); }",
+        "M001",
+    );
+}
+#[test]
+fn enum_value_is_not_a_type_qualifier() {
+    bad(
+        "enum E { A, } fn f()->E { let value=E::A(); return value::A(); }",
+        "T001",
+    );
+}
+#[test]
+fn enum_constructor_rejects_extra_path_components() {
+    let r = modules(&[
+        ("a", "pub enum E { A, }"),
+        ("b", "import a; fn f()->a::E{return a::E::extra::A();}"),
+    ]);
+    assert!(!r.is_valid());
+}
+#[test]
+fn diagnostic_type_dag_expansion_is_bounded() {
+    let mut source = "type A0 = (i64,i64);".to_string();
+    for i in 1..24 {
+        source.push_str(&format!("type A{i} = (A{},A{});", i - 1, i - 1));
+    }
+    source.push_str("fn f(x:A23)->bool{return x;}");
+    let r = modules(&[("test", &source)]);
+    assert!(!r.is_valid());
+    assert!(r.diagnostics.iter().all(|d| d.message.len() < 1200));
+}
+fn entry(source: &str, selected: &str) -> SemanticResult {
+    let mut sm = SourceManager::default();
+    let id = sm.add("app.cretes", source.as_bytes());
+    cretes_frontend::semantic::analyze_entry(
+        &[ModuleInput {
+            identity: "app",
+            source: sm.get(id).unwrap(),
+        }],
+        SemanticOptions::default(),
+        selected,
+    )
+    .unwrap()
+}
+#[test]
+fn entry_accepts_i32_and_result() {
+    assert!(entry("fn main()->i32{return 0;}", "app").is_valid());
+    assert!(entry("fn main()->Result[i32,text]{return Result::Ok(0);}", "app").is_valid());
+}
+#[test]
+fn entry_rejects_wrong_contracts() {
+    for source in [
+        "",
+        "fn main(x:i32)->i32{return x;}",
+        "fn main()->i64{return 0;}",
+        "fn main()->Result[i64,text]{return Result::Ok(0);}",
+        "const main:i32=0;",
+    ] {
+        assert!(!entry(source, "app").is_valid(), "{source}");
+    }
+}
+#[test]
+fn entry_requires_explicit_existing_module() {
+    assert!(!entry("fn main()->i32{return 0;}", "missing").is_valid());
+}
+#[test]
+fn library_does_not_require_main() {
+    good("pub fn answer()->i64{return 42;}");
+}
+
+#[test]
+fn entry_rejects_absent_sources() {
+    assert!(
+        cretes_frontend::semantic::analyze_entry(&[], SemanticOptions::default(), "app").is_err()
+    );
+}
+
+#[test]
+fn reference_return_direct_and_reborrow() {
+    good("fn f(x:&i64)->&i64 from x{return x;}");
+    good("fn f(x:&i64)->&i64 from x{return &*x;}");
+    good("fn f(x:&mut i64)->&i64 from x{return &*x;}");
+}
+#[test]
+fn reference_return_rejects_local_storage() {
+    bad("fn f(x:&i64)->&i64 from x{let y=0; return &y;}", "B002");
+}
+#[test]
+fn reference_return_rejects_other_parameter() {
+    bad("fn f(x:&i64,y:&i64)->&i64 from x{return y;}", "B002");
+}
+#[test]
+fn reference_return_tracks_aliases_and_reassignment() {
+    good("fn f(x:&i64,y:&i64)->&i64 from x{var r=y;r=x;let s=r;return s;}");
+    bad(
+        "fn f(x:&i64,y:&i64)->&i64 from x{var r=x;r=y;return r;}",
+        "B002",
+    );
+}
+#[test]
+fn reference_return_checks_branch_join() {
+    bad(
+        "fn f(x:&i64,y:&i64,b:bool)->&i64 from x{var r=x;if b{r=y;}return r;}",
+        "B002",
+    );
+    good("fn f(x:&i64,y:&i64,b:bool)->&i64 from x{var r=y;if b{r=x;}else{r=x;}return r;}");
+}
+#[test]
+fn reference_return_unreachable_branch_has_no_origin_effect() {
+    good("fn f(x:&i64,y:&i64)->&i64 from x{var r=x;if false{r=y;}return r;}");
+    good("fn f(x:&i64,y:&i64)->&i64 from x{return x;return y;}");
+}
+#[test]
+fn reference_return_tracks_call_contract() {
+    good("fn id(x:&i64)->&i64 from x{return x;} fn f(x:&i64)->&i64 from x{return id(x);}");
+    bad(
+        "fn id(x:&i64)->&i64 from x{return x;} fn f(x:&i64,y:&i64)->&i64 from x{return id(y);}",
+        "B002",
+    );
+}
+#[test]
+fn reference_return_tracks_projection() {
+    good("struct R{n:i64,} fn f(x:&R)->&i64 from x{return &(*x).n;}");
+    good("fn f(x:&Seq[i64])->&i64 from x{return &(*x)[0];}");
+}
+#[test]
+fn reference_return_checks_loop_backedge() {
+    bad(
+        "fn f(x:&i64,y:&i64,b:bool)->&i64 from x{var r=x;loop{if b{return r;}r=y;}}",
+        "B002",
+    );
+    good("fn f(x:&i64,y:&i64)->&i64 from x{var r=y;loop{r=x;break;}return r;}");
+}
+#[test]
+fn reference_return_checks_zero_iteration_path() {
+    bad(
+        "fn f(x:&i64,y:&i64,b:bool)->&i64 from x{var r=y;while b{r=x;}return r;}",
+        "B002",
+    );
+}
+#[test]
+fn reference_return_tracks_borrowed_match_payload() {
+    good("fn f(x:&Option[i64],fallback:&i64)->&i64 from x{match x{Option::Some(v)=>{return v;}Option::None()=>{loop{}}}} ");
+}
+#[test]
+fn reference_return_tracks_iterator_reference() {
+    good("fn f(x:&Seq[i64])->&i64 from x{for v in x{return v;}loop{}}");
+}

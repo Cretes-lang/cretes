@@ -718,3 +718,269 @@ fn reference_return_tracks_borrowed_match_payload() {
 fn reference_return_tracks_iterator_reference() {
     good("fn f(x:&Seq[i64])->&i64 from x{for v in x{return v;}loop{}}");
 }
+
+#[test]
+fn result_binding_requires_handling() {
+    bad("fn f()->(){let r:Result[i64,text]=Result::Ok(1);}", "T003");
+}
+#[test]
+fn result_parameter_requires_handling() {
+    bad("fn f(r:Result[i64,text])->(){}", "T003");
+}
+#[test]
+fn result_explicit_discard_discharges_obligation() {
+    good("fn f(r:Result[i64,text])->(){discard(r,\"intentional\");}");
+}
+#[test]
+fn result_return_transfers_obligation() {
+    good("fn f(r:Result[i64,text])->Result[i64,text]{return r;}");
+}
+#[test]
+fn result_match_handles_outer_obligation() {
+    good("fn f(r:Result[i64,text])->(){match r{Result::Ok(v)=>{discard(v,\"used\");}Result::Err(e)=>{discard(e,\"logged\");}}}");
+}
+#[test]
+fn result_wildcard_cannot_silently_drop() {
+    bad("fn f(r:Result[i64,text])->(){match r{_=>{}}}", "T003");
+}
+#[test]
+fn result_binding_pattern_transfers_obligation() {
+    bad("fn f(r:Result[i64,text])->(){match r{x=>{}}}", "T003");
+    good("fn f(r:Result[i64,text])->(){match r{x=>{discard(x,\"explicit\");}}}");
+}
+#[test]
+fn result_branch_requires_every_normal_path() {
+    bad(
+        "fn f(r:Result[i64,text],b:bool)->(){if b{discard(r,\"explicit\");}}",
+        "T003",
+    );
+    good("fn f(r:Result[i64,text],b:bool)->(){if b{discard(r,\"yes\");}else{discard(r,\"no\");}}");
+}
+#[test]
+fn result_overwrite_is_not_handling() {
+    bad(
+        "fn f()->(){var r:Result[i64,text]=Result::Ok(1);r=Result::Ok(2);discard(r,\"explicit\");}",
+        "T003",
+    );
+}
+#[test]
+fn result_whole_aggregate_transfer_keeps_obligation() {
+    bad("fn f(r:Result[i64,text])->(){let tuple=(r,);}", "T003");
+    good("fn f(r:Result[i64,text])->(){let tuple=(r,);discard(tuple,\"explicit\");}");
+}
+#[test]
+fn result_propagation_checks_other_pending_owners() {
+    bad("fn f(a:Result[i64,text],b:Result[i64,text])->Result[i64,text]{let x=a?;discard(b,\"later\");return Result::Ok(x);}", "T003");
+    good("fn f(a:Result[i64,text])->Result[i64,text]{let x=a?;return Result::Ok(x);}");
+}
+#[test]
+fn result_local_scope_exit_checks_obligation() {
+    bad(
+        "fn f()->(){{let r:Result[i64,text]=Result::Ok(1);}}",
+        "T003",
+    );
+}
+#[test]
+fn result_loop_break_checks_local_obligation() {
+    bad(
+        "fn f()->(){loop{let r:Result[i64,text]=Result::Ok(1);break;}}",
+        "T003",
+    );
+    good("fn f(r:Result[i64,text])->(){loop{discard(r,\"explicit\");break;}}");
+}
+#[test]
+fn result_empty_container_does_not_invent_obligation() {
+    good(
+        "fn f()->(){let x:Option[Result[i64,text]]=Option::None();let y:Seq[Result[i64,text]]=[];}",
+    );
+}
+#[test]
+fn result_nested_wildcard_rejected() {
+    bad("fn f(r:Result[Result[i64,text],text])->(){match r{Result::Ok(_)=>{}Result::Err(e)=>{discard(e,\"logged\");}}}", "T003");
+}
+#[test]
+fn result_named_call_transfers_to_callee() {
+    good("fn consume(r:Result[i64,text])->(){discard(r,\"explicit\");} fn f(r:Result[i64,text])->(){consume(r);}");
+}
+
+macro_rules! canonical_semantic {
+    ($name:ident,$path:literal,$identity:literal) => {
+        #[test]
+        fn $name() {
+            let r = modules(&[($identity, include_str!($path))]);
+            assert!(r.is_valid(), "{:?}", r.diagnostics);
+        }
+    };
+}
+canonical_semantic!(
+    canonical_variables,
+    "../examples/02-variables.cretes",
+    "example"
+);
+canonical_semantic!(
+    canonical_functions,
+    "../examples/03-functions.cretes",
+    "example"
+);
+canonical_semantic!(
+    canonical_conditionals,
+    "../examples/04-conditionals.cretes",
+    "example"
+);
+canonical_semantic!(canonical_loops, "../examples/05-loops.cretes", "example");
+canonical_semantic!(
+    canonical_user_types,
+    "../examples/07-user-types.cretes",
+    "example"
+);
+canonical_semantic!(canonical_errors, "../examples/08-errors.cretes", "example");
+canonical_semantic!(
+    canonical_modules,
+    "../examples/09-modules.cretes",
+    "demo::math"
+);
+canonical_semantic!(
+    canonical_borrowing,
+    "../examples/10-borrowing.cretes",
+    "example"
+);
+#[test]
+fn semantic_diagnostic_messages_are_bounded() {
+    let name = "x".repeat(10000);
+    let source = format!("fn f()->(){{discard({name},\"test\");}}");
+    let result = modules(&[("test", &source)]);
+    assert!(!result.is_valid());
+    assert!(result.diagnostics.iter().all(|d| d.message.len() <= 2051));
+}
+#[test]
+fn obligations_respect_diagnostic_cap() {
+    let mut source = "fn f()->(){".to_string();
+    for i in 0..250 {
+        source.push_str(&format!("let r{i}:Result[i64,text]=Result::Ok(1);"));
+    }
+    source.push('}');
+    let result = modules(&[("test", &source)]);
+    assert!(!result.is_valid());
+    assert!(result.diagnostics.len() <= 100);
+}
+
+// Explicit test-only signatures for the examples' conceptual library APIs.
+// Divergent bodies make no claim to implement these APIs or execute their behavior.
+fn canonical_with_contracts(source: &str) {
+    let r=modules(&[
+        ("example",source),
+        ("std::io","pub enum Error{Failure,} pub fn println(value:text)->Result[(),Error]{loop{}}"),
+        ("std::fs","pub enum Error{Failure,} pub fn read_bytes(path:text)->Result[Bytes,Error]{loop{}} pub fn write_bytes(path:text,data:&Bytes)->Result[(),Error]{loop{}}"),
+        ("std::bytes","pub fn len(data:&Bytes)->usize{loop{}}"),
+        ("std::seq","pub fn push(values:&mut Seq[i64],value:i64)->(){loop{}}"),
+        ("std::map","pub fn empty()->Map[text,i64]{loop{}}"),
+        ("std::set","pub fn empty()->Set[i64]{loop{}}"),
+    ]);
+    assert!(r.is_valid(), "{:?}", r.diagnostics);
+}
+#[test]
+fn canonical_hello_with_explicit_contracts() {
+    canonical_with_contracts(include_str!("../examples/01-hello-world.cretes"));
+}
+#[test]
+fn canonical_collections_with_concrete_contracts() {
+    canonical_with_contracts(include_str!("../examples/06-collections.cretes"));
+}
+#[test]
+fn canonical_automation_with_explicit_contracts() {
+    canonical_with_contracts(include_str!("../examples/11-automation.cretes"));
+}
+#[test]
+fn canonical_networking_with_explicit_contracts() {
+    canonical_with_contracts(include_str!("../examples/12-packet-validation.cretes"));
+}
+canonical_semantic!(
+    canonical_numeric_preprocessing,
+    "../examples/13-numeric-preprocessing.cretes",
+    "example"
+);
+#[test]
+fn canonical_defensive_bytes_with_explicit_contracts() {
+    canonical_with_contracts(include_str!("../examples/14-defensive-bytes.cretes"));
+}
+
+#[test]
+fn session_input_budget_rejects_before_parsing() {
+    let mut sm = SourceManager::default();
+    let a = sm.add("a", b"fn a()->(){}".as_slice());
+    let b = sm.add("b", b"fn b()->(){}".as_slice());
+    let inputs = [
+        ModuleInput {
+            identity: "a",
+            source: sm.get(a).unwrap(),
+        },
+        ModuleInput {
+            identity: "b",
+            source: sm.get(b).unwrap(),
+        },
+    ];
+    let size = inputs
+        .iter()
+        .map(|i| i.identity.len() + i.source.bytes().len())
+        .sum();
+    let exact = SemanticOptions {
+        session_source_bytes: size,
+        ..Default::default()
+    };
+    assert!(analyze(&inputs, exact).is_valid());
+    let r = analyze(
+        &inputs,
+        SemanticOptions {
+            session_source_bytes: size - 1,
+            ..exact
+        },
+    );
+    assert!(r.modules.is_empty());
+    assert_eq!(r.diagnostics[0].code, "R001");
+    let r = analyze(
+        &inputs,
+        SemanticOptions {
+            modules: 1,
+            ..exact
+        },
+    );
+    assert!(r.modules.is_empty());
+    assert_eq!(r.diagnostics[0].code, "R001");
+}
+
+#[test]
+fn session_node_budget_is_shared_between_modules() {
+    let mut sm = SourceManager::default();
+    let a = sm.add("a", b"fn a()->(){}".as_slice());
+    let b = sm.add("b", b"fn b()->(){}".as_slice());
+    let inputs = [
+        ModuleInput {
+            identity: "a",
+            source: sm.get(a).unwrap(),
+        },
+        ModuleInput {
+            identity: "b",
+            source: sm.get(b).unwrap(),
+        },
+    ];
+    let normal = analyze(&inputs, SemanticOptions::default());
+    let count: usize = normal.modules.iter().map(|m| m.ast.nodes.len()).sum();
+    assert!(analyze(
+        &inputs,
+        SemanticOptions {
+            session_nodes: count,
+            ..Default::default()
+        }
+    )
+    .is_valid());
+    let r = analyze(
+        &inputs,
+        SemanticOptions {
+            session_nodes: count / 2,
+            ..Default::default()
+        },
+    );
+    assert!(!r.is_valid());
+    assert!(r.diagnostics.iter().any(|d| d.code == "R001"));
+    assert!(r.modules.iter().map(|m| m.ast.nodes.len()).sum::<usize>() <= count / 2);
+}

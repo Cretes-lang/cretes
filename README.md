@@ -17,9 +17,11 @@ cargo run --bin cretes-front -- lex examples/01-hello-world.cretes
 cargo run --bin cretes-front -- parse examples/01-hello-world.cretes
 cargo run --bin cretes-front -- parse examples/08-errors.cretes --json-diagnostics
 cargo bench --bench baseline
+cargo bench --bench semantic
+cargo run --bin cretes-front -- analyze --target-bits 64 --module app examples/03-functions.cretes --entry app
 ```
 
-`cretes-front` is an experimental developer utility. `lex` prints tokens; `parse` prints the arena AST. Diagnostics go to stderr. Exit codes: 0 for successful syntax processing, 1 for source diagnostics, 2 for usage/I/O failures. Syntax success does not establish semantic validity. Debug output and Rust APIs are not stable compatibility promises.
+`cretes-front` is an experimental developer utility. `lex` prints tokens; `parse` prints the arena AST. Diagnostics go to stderr. Exit codes: 0 for successful syntax processing, 1 for source diagnostics, 2 for usage/I/O failures. Syntax success does not establish semantic validity. The experimental `analyze` command accepts an explicit module map and target width; its success does not certify complete language validity or move/loan safety. Debug output and Rust APIs are not stable compatibility promises.
 
 ## Implementation and evidence
 
@@ -29,7 +31,7 @@ cargo bench --bench baseline
 - [Security review and performance measurements](docs/REVIEW.md)
 - [Phase 4 implementation status and handoff](docs/PHASE4.md)
 
-Canonical source: [Phase 3 candidate](https://github.com/Cretes-lang/spec/tree/fe6d0d48518d0419d59fb680673150c92b6a084c/docs/language). The 14 examples are byte-for-byte copies. Domain examples validate syntax only; their APIs are not implemented.
+Canonical source: [Phase 3 candidate](https://github.com/Cretes-lang/spec/tree/fe6d0d48518d0419d59fb680673150c92b6a084c/docs/language). The 14 examples are byte-for-byte copies. Canonical examples also exercise the provisional semantic checks using explicit test-only contracts where needed; their APIs are not implemented.
 
 ## Contributing
 

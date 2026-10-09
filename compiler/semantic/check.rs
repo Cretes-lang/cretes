@@ -100,43 +100,73 @@ impl Analyzer<'_> {
             );
         }
     }
-    fn type_name(&self, t: TypeId, depth: usize) -> String {
-        if depth > 16 {
-            return "…".into();
+    fn type_name(&self, t: TypeId, _depth: usize) -> String {
+        // A depth cap alone still expands a shared type DAG exponentially.
+        // Bound both visited nodes and output bytes for untrusted diagnostics.
+        enum Part {
+            Type(TypeId),
+            Text(String),
         }
-        match self.result.types.get(t) {
-            Some(Type::Integer { signed, bits }) => {
-                format!("{}{bits}", if *signed { "i" } else { "u" })
+        let mut stack = vec![Part::Type(t)];
+        let mut output = String::new();
+        let mut work = 0;
+        while let Some(part) = stack.pop() {
+            work += 1;
+            if work > 128 || output.len() >= 512 {
+                output.push('…');
+                break;
             }
-            Some(Type::Float(b)) => format!("f{b}"),
-            Some(Type::Usize) => "usize".into(),
-            Some(Type::Bool) => "bool".into(),
-            Some(Type::Char) => "char".into(),
-            Some(Type::Text) => "text".into(),
-            Some(Type::Bytes) => "Bytes".into(),
-            Some(Type::Tuple(ts)) => format!(
-                "({})",
-                ts.iter()
-                    .map(|t| self.type_name(*t, depth + 1))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            Some(Type::Builtin { name, arguments }) => format!(
-                "{name}[{}]",
-                arguments
-                    .iter()
-                    .map(|t| self.type_name(*t, depth + 1))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            Some(Type::Reference { mutable, target }) => format!(
-                "&{}{}",
-                if *mutable { "mut " } else { "" },
-                self.type_name(*target, depth + 1)
-            ),
-            Some(Type::Nominal(s)) => self.result.symbols[s.0].name.clone(),
-            _ => "<error>".into(),
+            match part {
+                Part::Text(text) => {
+                    let remaining = 512 - output.len();
+                    output.extend(text.chars().take(remaining));
+                }
+                Part::Type(t) => match self.result.types.get(t) {
+                    Some(Type::Tuple(ts)) => {
+                        output.push('(');
+                        stack.push(Part::Text(")".into()));
+                        for (i, t) in ts.iter().take(32).enumerate().rev() {
+                            stack.push(Part::Type(*t));
+                            if i > 0 {
+                                stack.push(Part::Text(",".into()));
+                            }
+                        }
+                        if ts.len() > 32 {
+                            output.push('…');
+                        }
+                    }
+                    Some(Type::Builtin { name, arguments }) => {
+                        output.push_str(name);
+                        output.push('[');
+                        stack.push(Part::Text("]".into()));
+                        for (i, t) in arguments.iter().enumerate().rev() {
+                            stack.push(Part::Type(*t));
+                            if i > 0 {
+                                stack.push(Part::Text(",".into()));
+                            }
+                        }
+                    }
+                    Some(Type::Reference { mutable, target }) => {
+                        output.push_str(if *mutable { "&mut " } else { "&" });
+                        stack.push(Part::Type(*target));
+                    }
+                    Some(Type::Nominal(s)) => stack.push(Part::Text(
+                        self.result.symbols[s.0].name.chars().take(128).collect(),
+                    )),
+                    Some(Type::Integer { signed, bits }) => {
+                        output.push_str(&format!("{}{bits}", if *signed { "i" } else { "u" }))
+                    }
+                    Some(Type::Float(b)) => output.push_str(&format!("f{b}")),
+                    Some(Type::Usize) => output.push_str("usize"),
+                    Some(Type::Bool) => output.push_str("bool"),
+                    Some(Type::Char) => output.push_str("char"),
+                    Some(Type::Text) => output.push_str("text"),
+                    Some(Type::Bytes) => output.push_str("Bytes"),
+                    _ => output.push_str("<error>"),
+                },
+            }
         }
+        output
     }
     fn block(
         &mut self,
@@ -850,11 +880,17 @@ impl Analyzer<'_> {
         if parts.len() >= 2 {
             let type_parts = &parts[..parts.len() - 1];
             let type_symbol = if type_parts.len() == 1 {
-                self.result.scopes[self.result.modules[m.0].scope.0]
-                    .bindings
-                    .get(&type_parts[0])
-                    .copied()
-            } else {
+                let mut current = Some(scope);
+                let mut found = None;
+                while let Some(s) = current {
+                    if let Some(id) = self.result.scopes[s.0].bindings.get(&type_parts[0]) {
+                        found = Some(*id);
+                        break;
+                    }
+                    current = self.result.scopes[s.0].parent;
+                }
+                found
+            } else if type_parts.len() == 2 {
                 self.result.modules[m.0]
                     .imports
                     .get(&type_parts[0])
@@ -864,10 +900,23 @@ impl Analyzer<'_> {
                             .get(&type_parts[1])
                     })
                     .copied()
+            } else {
+                None
             };
             if let Some(s) = type_symbol {
                 let t = self.result.symbols[s.0].ty;
                 if let Some(Type::Nominal(e)) = self.result.types.get(t) {
+                    if !matches!(
+                        self.result.symbols[s.0].kind,
+                        SymbolKind::Enum | SymbolKind::Alias
+                    ) {
+                        self.error(
+                            "T001",
+                            self.span(m, callee),
+                            "variant qualifier must denote a type",
+                        );
+                        return Types::ERROR;
+                    }
                     if let Some(vs) = self.result.enums.get(e) {
                         let v = vs
                             .iter()

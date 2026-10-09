@@ -1,7 +1,10 @@
 //! Provisional semantic analysis against the published Phase 3 candidate.
 //! Inputs are an explicit logical module map. This layer never opens files or runs code.
 mod constants;
+mod entry;
+pub use entry::analyze_entry;
 mod patterns;
+mod provenance;
 mod types;
 mod validation;
 use crate::{
@@ -257,6 +260,11 @@ pub fn analyze(inputs: &[ModuleInput<'_>], options: SemanticOptions) -> Semantic
     for i in 0..a.result.symbols.len() {
         if a.result.symbols[i].kind == SymbolKind::Function {
             a.check_function(SymbolId(i));
+        }
+    }
+    for i in 0..a.result.symbols.len() {
+        if a.result.symbols[i].kind == SymbolKind::Function {
+            a.check_return_provenance(SymbolId(i));
         }
     }
     a.validate_types();

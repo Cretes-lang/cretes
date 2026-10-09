@@ -49,7 +49,7 @@ move/loan safety or full language validity**. Rust APIs and dumps remain experim
 
 Rust 1.85.1, Linux, 2026-10-09:
 
-- `cargo test --locked`: 313 tests passed (150 semantic + 12 CLI + 151 other frontend).
+- `cargo test --locked`: 315 tests passed (152 semantic + 12 CLI + 151 other frontend).
 - `cargo fmt --all -- --check`: passed.
 - `cargo clippy --all-targets --locked -- -D warnings`: passed.
 
@@ -137,12 +137,31 @@ not measured. The fixture is reproducible in `benchmarks/semantic.rs`.
 - Replace whole-owner Result bits with projection-aware obligations, including
   collection iteration and early loop exits. Keep positive conformance tests for
   empty nested payloads so conservative false rejections cannot hide regressions.
-- Complete cumulative session memory budgeting across module inputs and audit
-  pattern-matrix/state-copy amplification. Per-file/fuel limits are not a full
-  memory-exhaustion defense. Do not claim a completed security review.
+- Cumulative input and retained AST budgets are now implemented (see below).
+  Continue auditing pattern-matrix/state-copy amplification and peak working
+  memory. Do not claim a completed security review.
 - Finish the documented handoff to the separate ownership/loan stage and verify
   that no consumer mistakes these partial checks for a full safety certificate.
 - Complete the final requirements traceability/diff review and obtain checks on
   the eventual final revision, then reconcile accepted Phase 2/3 decisions.
 
 The three Phase 5 completion gates remain unchecked.
+
+## Session resource review — 2026-10-09
+
+The semantic API now preflights module count and cumulative source/identity bytes
+before allocating the sorted module index or parsing. Defaults are 4096 modules,
+64 MiB total input and 1,000,000 retained AST nodes shared across the session.
+Each module also retains the existing per-file limits. Checked arithmetic rejects
+overflow. Callers may configure these limits; caller-owned source snapshots are
+outside the analyzer allocation boundary. The CLI bounds each read by the lesser
+of the per-file allowance and remaining session allowance, with one detection
+byte, and rejects excess before adding a source snapshot.
+
+Two boundary regressions verify exact-budget acceptance, one-byte excess,
+module-count preflight, and a node budget shared across modules. Local suite:
+315 tests (152 semantic, 12 CLI, 151 other frontend), all passing. Formatting and
+Clippy pass. This closes the missing cumulative input/AST budget finding; it does
+not close the aggregate Result precision or complete semantic security review.
+The limits bound structural input, not exact process RSS. No peak-memory claim
+is made, and large user-configured limits remain the caller's responsibility.

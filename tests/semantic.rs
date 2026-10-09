@@ -903,3 +903,84 @@ canonical_semantic!(
 fn canonical_defensive_bytes_with_explicit_contracts() {
     canonical_with_contracts(include_str!("../examples/14-defensive-bytes.cretes"));
 }
+
+#[test]
+fn session_input_budget_rejects_before_parsing() {
+    let mut sm = SourceManager::default();
+    let a = sm.add("a", b"fn a()->(){}".as_slice());
+    let b = sm.add("b", b"fn b()->(){}".as_slice());
+    let inputs = [
+        ModuleInput {
+            identity: "a",
+            source: sm.get(a).unwrap(),
+        },
+        ModuleInput {
+            identity: "b",
+            source: sm.get(b).unwrap(),
+        },
+    ];
+    let size = inputs
+        .iter()
+        .map(|i| i.identity.len() + i.source.bytes().len())
+        .sum();
+    let exact = SemanticOptions {
+        session_source_bytes: size,
+        ..Default::default()
+    };
+    assert!(analyze(&inputs, exact).is_valid());
+    let r = analyze(
+        &inputs,
+        SemanticOptions {
+            session_source_bytes: size - 1,
+            ..exact
+        },
+    );
+    assert!(r.modules.is_empty());
+    assert_eq!(r.diagnostics[0].code, "R001");
+    let r = analyze(
+        &inputs,
+        SemanticOptions {
+            modules: 1,
+            ..exact
+        },
+    );
+    assert!(r.modules.is_empty());
+    assert_eq!(r.diagnostics[0].code, "R001");
+}
+
+#[test]
+fn session_node_budget_is_shared_between_modules() {
+    let mut sm = SourceManager::default();
+    let a = sm.add("a", b"fn a()->(){}".as_slice());
+    let b = sm.add("b", b"fn b()->(){}".as_slice());
+    let inputs = [
+        ModuleInput {
+            identity: "a",
+            source: sm.get(a).unwrap(),
+        },
+        ModuleInput {
+            identity: "b",
+            source: sm.get(b).unwrap(),
+        },
+    ];
+    let normal = analyze(&inputs, SemanticOptions::default());
+    let count: usize = normal.modules.iter().map(|m| m.ast.nodes.len()).sum();
+    assert!(analyze(
+        &inputs,
+        SemanticOptions {
+            session_nodes: count,
+            ..Default::default()
+        }
+    )
+    .is_valid());
+    let r = analyze(
+        &inputs,
+        SemanticOptions {
+            session_nodes: count / 2,
+            ..Default::default()
+        },
+    );
+    assert!(!r.is_valid());
+    assert!(r.diagnostics.iter().any(|d| d.code == "R001"));
+    assert!(r.modules.iter().map(|m| m.ast.nodes.len()).sum::<usize>() <= count / 2);
+}

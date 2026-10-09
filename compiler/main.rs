@@ -127,13 +127,29 @@ fn run_semantic(args: &[std::ffi::OsString]) -> Result<bool, String> {
     }
     let mut sources = SourceManager::default();
     let mut ids = Vec::new();
-    for (_, path) in &specifications {
+    let mut remaining_bytes = options.session_source_bytes;
+    for (identity, path) in &specifications {
+        remaining_bytes = remaining_bytes
+            .checked_sub(identity.len())
+            .ok_or("semantic session input budget exceeded")?;
         let mut bytes = Vec::new();
         File::open(path)
             .map_err(|e| e.to_string())?
-            .take(options.limits.source_bytes as u64 + 1)
+            .take(
+                options
+                    .limits
+                    .source_bytes
+                    .min(remaining_bytes)
+                    .saturating_add(1) as u64,
+            )
             .read_to_end(&mut bytes)
             .map_err(|e| e.to_string())?;
+        if bytes.len() > options.limits.source_bytes {
+            return Err("source file byte limit exceeded".into());
+        }
+        remaining_bytes = remaining_bytes
+            .checked_sub(bytes.len())
+            .ok_or("semantic session input budget exceeded")?;
         ids.push(sources.add(path.to_string_lossy(), bytes));
     }
     let inputs: Vec<_> = specifications

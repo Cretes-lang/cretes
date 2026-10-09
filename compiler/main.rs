@@ -3,6 +3,7 @@ use std::{
     env,
     fs::File,
     io::{self, Read, Write},
+    path::Path,
     process::ExitCode,
 };
 
@@ -29,7 +30,7 @@ fn run() -> Result<bool, String> {
 
     let limits = Limits::default();
     let mut bytes = vec![];
-    File::open(&args[1])
+    File::open(Path::new(&args[1]))
         .map_err(|e| e.to_string())?
         .take(limits.source_bytes as u64 + 1)
         .read_to_end(&mut bytes)
@@ -150,7 +151,7 @@ fn run_semantic(args: &[std::ffi::OsString]) -> Result<bool, String> {
             .ok_or("semantic session input budget exceeded")?;
 
         let mut bytes = Vec::new();
-        File::open(path)
+        File::open(Path::new(path))
             .map_err(|e| e.to_string())?
             .take((options.limits.source_bytes.min(remaining_bytes)).saturating_add(1) as u64)
             .read_to_end(&mut bytes)

@@ -4,6 +4,14 @@
 
 Organization: Cretes-lang. Repository modified: cretes. Branch: feature/phase4-frontend. Tracking issue: #1. PR #2 is merged at `4319944a6b412a6cf4c2990bebc1c3b0977c23ff`. This report describes the tested candidate implementation and the separate outstanding formal acceptance gate. No other repository or normative specification is modified.
 
+## Formal acceptance update — 2026-10-12
+
+Phase 2 was accepted as RFC 0001 on 2026-10-10 ([dated decision](https://github.com/Cretes-lang/rfcs/pull/1#issuecomment-6093106846)). Architecture status synchronization merged in [spec#10](https://github.com/Cretes-lang/spec/pull/10); RFC metadata synchronization merged in [rfcs#3](https://github.com/Cretes-lang/rfcs/pull/3).
+
+Phase 3 final comment was announced on 2026-10-12 in [rfcs#2](https://github.com/Cretes-lang/rfcs/pull/2), with intended outcome Accepted. Review remains open through 2026-10-19 inclusive UTC; no decision before 2026-10-20 00:00 UTC. The reviewed language content is `5a50ab3dd9fceb3918e4dabeea750bf92f17eb1b`, published at `fe6d0d48518d0419d59fb680673150c92b6a084c`; RFC content is `cda7c9882b15f6c6a731d1156380262679a0bb35`.
+
+Phase 4 is not formally closed. After the Phase 3 review period, resolve objections and record a dated decision tied to exact revisions. If accepted, reconcile the frontend against that accepted revision, rerun affected conformance tests and CI if changes are required, and record the closure evidence here. Material design changes require renewed review. The measurements and test counts below describe the original Phase 4 implementation revision; this metadata update does not claim a fresh compiler test run or certify subsequent Phase 5 changes.
+
 ## Implementation sections 4.1–4.30
 
 | Report section | Result |
@@ -64,7 +72,7 @@ Organization: Cretes-lang. Repository modified: cretes. Branch: feature/phase4-f
 - Validated implementation head: `a1cda45b0fb82b74b8c42818b983cd0009a61f61`.
 - Published-file verification: all 39 changed files matched local validated bytes; downloaded GitHub archive passed all 158 tests.
 - Review: AI-assisted self-review of grammar, spans/Unicode, recovery/termination, AST shape, diagnostics, limits, complexity, tests, documentation and phase boundaries. No independent approval claimed.
-- Formal acceptance: publication/merge of RFC documents is not a dated accepted decision. Phase 3 RFC #2 was observed merged on 2026-10-06 while its text still says PROPOSED / UNACCEPTED and final-comment/decision work remains pending.
+- Formal acceptance: Phase 2 is accepted; Phase 3 remains in final comment as detailed above. Publication/merge of an RFC proposal does not itself accept it.
 
 | Commit | Meaningful change |
 |---|---|
@@ -84,10 +92,11 @@ Created: Cargo.toml, Cargo.lock, rust-toolchain.toml; compiler/{source,diagnosti
 
 ## Deferred work, known issues and debt
 
-Formal Phase 2/3 RFC acceptance is still outstanding; this implementation is explicitly provisional. See REVIEW.md for bounded-resource limitations, source mapping cost, experimental API/debug output, lack of sustained fuzzing and no recovery from host allocation failure. These are disclosed engineering limits, not hidden placeholders.
+Phase 2 acceptance is complete. Phase 3 acceptance and subsequent frontend reconciliation remain outstanding; this implementation is explicitly provisional. See REVIEW.md for bounded-resource limitations, source mapping cost, experimental API/debug output, lack of sustained fuzzing and no recovery from host allocation failure. These are disclosed engineering limits, not hidden placeholders.
 
 User generic declarations, async/concurrency, unsafe/FFI, incremental parsing, rich source excerpts and LSP integration remain deferred. No placeholders are presented as implemented features.
 
 ## Phase 5 handoff
 
 Phase 5 can consume `FrontendResult.ast`, arena node IDs, typed syntactic variants, source snapshots/spans, token/trivia spelling and structured diagnostics. It must reject/handle error nodes and resource-aborted roots. It can then add scopes, symbol tables, name/type/module resolution, semantic validation and type checking through separately reviewed work. None of those systems, IR lowering, optimization, backend, execution or runtime are implemented here.
+

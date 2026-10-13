@@ -984,3 +984,57 @@ fn session_node_budget_is_shared_between_modules() {
     assert!(r.diagnostics.iter().any(|d| d.code == "R001"));
     assert!(r.modules.iter().map(|m| m.ast.nodes.len()).sum::<usize>() <= count / 2);
 }
+
+#[test]
+fn pattern_matrix_width_is_charged_before_expansion() {
+    let width = 24;
+    let fields = vec!["bool"; width].join(",");
+    let mut arms = String::new();
+    for i in 0..width {
+        let mut pattern = vec!["_"; width];
+        pattern[..i].fill("false");
+        pattern[i] = "true";
+        arms.push_str(&format!("({})=>{{}}", pattern.join(",")));
+    }
+    arms.push_str(&format!("({})=>{{}}", vec!["false"; width].join(",")));
+    let source = format!("fn f(x:({fields}))->(){{match x{{{arms}}}}}");
+    let mut sm = SourceManager::default();
+    let id = sm.add("test", source.as_bytes());
+    let inputs = [ModuleInput {
+        identity: "test",
+        source: sm.get(id).unwrap(),
+    }];
+    let limited = analyze(
+        &inputs,
+        SemanticOptions {
+            work: 4000,
+            ..SemanticOptions::default()
+        },
+    );
+    assert!(
+        limited.diagnostics.iter().any(|d| d.code == "R001"),
+        "{:?}",
+        limited.diagnostics
+    );
+    assert!(
+        !limited.diagnostics.iter().any(|d| d.code == "T002"),
+        "budget exhaustion must not become a coverage error"
+    );
+    let normal = analyze(&inputs, SemanticOptions::default());
+    assert!(normal.is_valid(), "{:?}", normal.diagnostics);
+}
+
+#[test]
+fn nested_pattern_sharing_preserves_coverage() {
+    good("enum E{A(Option[(bool,bool)]),B,} fn f(x:E)->(){match x{E::A(Option::Some((true,_)))=>{} E::A(Option::Some((false,_)))=>{} E::A(Option::None())=>{} E::B()=>{}}}");
+    bad("enum E{A(Option[(bool,bool)]),B,} fn f(x:E)->(){match x{E::A(Option::Some((true,_)))=>{} E::A(Option::None())=>{} E::B()=>{}}}", "T002");
+}
+
+#[test]
+fn wide_wildcard_product_does_not_enumerate_boolean_combinations() {
+    let fields = vec!["bool"; 64].join(",");
+    let pattern = vec!["_"; 64].join(",");
+    good(&format!(
+        "fn f(x:({fields}))->(){{match x{{({pattern})=>{{}}}}}}"
+    ));
+}

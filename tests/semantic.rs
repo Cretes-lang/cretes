@@ -1038,3 +1038,72 @@ fn wide_wildcard_product_does_not_enumerate_boolean_combinations() {
         "fn f(x:({fields}))->(){{match x{{({pattern})=>{{}}}}}}"
     ));
 }
+
+#[test]
+fn result_shape_preserves_empty_tuple_component() {
+    good("fn f(r:Result[i64,text])->(){let p:(Result[i64,text],Option[Result[i64,text]])=(r,Option::None());match p{(handled,_)=>{discard(handled,\"handled\");}}}");
+    bad("fn f(a:Result[i64,text],b:Result[i64,text])->(){let p=(a,Option::Some(b));match p{(handled,_)=>{discard(handled,\"handled\");}}}", "T003");
+}
+
+#[test]
+fn result_shape_preserves_known_constructor_payloads() {
+    good("fn f(r:Result[i64,text])->(){let p:Option[(Result[i64,text],Option[Result[i64,text]])]=Option::Some((r,Option::None()));match p{Option::Some((handled,_))=>{discard(handled,\"handled\");}Option::None()=>{}}}");
+    bad("fn f(p:Option[(Result[i64,text],Option[Result[i64,text]])])->(){match p{Option::Some((handled,_))=>{discard(handled,\"handled\");}Option::None()=>{}}}", "T003");
+}
+
+#[test]
+fn result_owned_iteration_handles_each_element() {
+    good("fn f(items:Seq[Result[i64,text]])->(){for item in items{discard(item,\"handled\");}}");
+    good("fn f(items:Seq[Result[i64,text]])->(){for item in items{discard(item,\"handled\");continue;}}");
+    bad(
+        "fn f(items:Seq[Result[i64,text]])->(){for item in items{continue;}}",
+        "T003",
+    );
+}
+
+#[test]
+fn result_owned_iteration_early_exits_check_remaining_elements() {
+    bad("fn f(items:Seq[Result[i64,text]])->(){for item in items{discard(item,\"handled\");break;}}", "T003");
+    bad("fn f(items:Seq[Result[i64,text]])->(){for item in items{discard(item,\"handled\");return;}}", "T003");
+    bad("fn f(items:Seq[Result[i64,text]])->Result[(),text]{for item in items{let value=item?;discard(value,\"handled\");}return Result::Ok(());}", "T003");
+}
+
+#[test]
+fn result_borrowed_iteration_does_not_consume_owner() {
+    bad("fn f(items:Seq[Result[i64,text]])->(){for item in &items{discard(item,\"inspected reference\");}}", "T003");
+    good("fn f(items:Seq[Result[i64,text]])->(){for item in &items{discard(item,\"inspected reference\");}discard(items,\"explicit owner handling\");}");
+}
+
+#[test]
+fn result_record_field_update_preserves_other_obligations() {
+    good("struct Pair{first:Result[i64,text],second:Option[Result[i64,text]],} fn f(r:Result[i64,text],next:Result[i64,text])->(){var p=new Pair{first:r,second:Option::None()};p.second=Option::Some(next);discard(p,\"handled both\");}");
+    bad("struct Pair{first:Result[i64,text],second:Option[Result[i64,text]],} fn f(r:Result[i64,text])->(){var p=new Pair{first:r,second:Option::None()};p.second=Option::None();}", "T003");
+    bad("struct Pair{first:Result[i64,text],second:Option[Result[i64,text]],} fn f(r:Result[i64,text])->(){var p=new Pair{first:r,second:Option::None()};p.first=Result::Ok(2);discard(p,\"handled replacement\");}", "T003");
+}
+
+#[test]
+fn result_shape_join_retains_possible_payload() {
+    bad("fn f(r:Result[i64,text],b:bool)->(){var p:(Option[Result[i64,text]],)=(Option::None(),);if b{p=(Option::Some(r),);}else{discard(r,\"unused path\");}match p{(_,)=>{}}}", "T003");
+    good("fn f(r:Result[i64,text],b:bool)->(){var p:(Option[Result[i64,text]],)=(Option::None(),);if b{p=(Option::Some(r),);}else{discard(r,\"unused path\");}discard(p,\"handled either path\");}");
+}
+
+#[test]
+fn result_iteration_nested_break_does_not_drop_outer_remainder() {
+    good("fn f(items:Seq[Result[i64,text]])->(){for item in items{loop{break;}discard(item,\"handled\");}}");
+    bad("fn f(items:Seq[Result[i64,text]])->(){for item in items{if true{continue;}discard(item,\"unreachable\");}}", "T003");
+}
+
+#[test]
+fn result_known_sequence_element_updates_are_distinct() {
+    good("fn f(r:Result[i64,text])->(){var xs:Seq[Option[Result[i64,text]]]=[Option::None(),Option::Some(r)];xs[0]=Option::None();discard(xs,\"handled\");}");
+    bad("fn f(r:Result[i64,text])->(){var xs:Seq[Option[Result[i64,text]]]=[Option::None(),Option::Some(r)];xs[1]=Option::None();discard(xs,\"too late\");}", "T003");
+}
+
+#[test]
+fn result_temporaries_survive_until_enclosing_expression_completes() {
+    bad("fn take(a:Result[i64,text],b:i64)->(){discard(a,\"handled\");} fn f(a:Result[i64,text],b:Result[i64,text])->Result[(),text]{take(a,b?);return Result::Ok(());}", "T003");
+    bad("fn f(a:Result[i64,text],b:Result[i64,text])->Result[(),text]{let pair=(a,b?);discard(pair,\"handled\");return Result::Ok(());}", "T003");
+    bad("struct Pair{first:Result[i64,text],second:i64,} fn f(a:Result[i64,text],b:Result[i64,text])->Result[(),text]{let pair=new Pair{first:a,second:b?};discard(pair,\"handled\");return Result::Ok(());}", "T003");
+    good("fn take(a:Result[i64,text],b:i64)->(){discard(a,\"handled\");} fn f(a:Result[i64,text])->(){take(a,2);}");
+    good("fn f(b:Result[i64,text])->Result[(),text]{let pair=(1,b?);discard(pair,\"handled\");return Result::Ok(());}");
+}

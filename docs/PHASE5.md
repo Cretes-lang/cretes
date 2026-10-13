@@ -165,3 +165,33 @@ Clippy pass. This closes the missing cumulative input/AST budget finding; it doe
 not close the aggregate Result precision or complete semantic security review.
 The limits bound structural input, not exact process RSS. No peak-memory claim
 is made, and large user-configured limits remain the caller's responsibility.
+
+## Pattern-matrix resource fix — 2026-10-13
+
+A focused security review found that matrix specialization cloned recursive
+pattern subtrees and charged recursive calls without charging expanded rows.
+A wide boolean product covered by wildcards also needlessly enumerated boolean
+combinations. The fix shares immutable pattern nodes with `Rc`, charges matrix
+cell and constructor-storage work before expansion using saturating arithmetic,
+and stops immediately when an all-wildcard row covers the candidate product.
+Exhaustion reports R001 rather than a false coverage diagnostic.
+
+Three regressions cover a 24-column decision list under restricted/default fuel,
+a 64-column wildcard product, and nested enum/Option/tuple coverage (both valid
+and non-exhaustive). Local Rust 1.85.1 Linux validation: 318 tests pass (155 semantic,
+12 CLI and 151 other frontend), formatting, Clippy with warnings denied, and
+release build pass. Remote CI must be verified on the published revision.
+
+Repeated existing 500-function benchmark, 46,280 source bytes, seven release
+samples per width, on 2026-10-13: 32-bit target min/median/max 4,360/4,479/4,913 us;
+64-bit target 4,205/4,322/5,983 us. These local observations do not measure peak
+memory or prove a cross-machine improvement. The fixture does not stress matches;
+the dedicated regressions exercise the matrix fix.
+
+This closes the identified pattern-subtree duplication and uncharged matrix
+expansion findings, not the entire security review. Projection-aware Result
+obligations, iteration flow, safety-stage handoff and final traceability remain
+open. Phase 2 has been accepted and synchronized; Phase 3's published final-comment
+period and formal Phase 4 reconciliation are recorded in docs/PHASE4.md. Maintainer
+approval to continue completion does not establish that unfinished code passes
+its completion gates. No Phase 6 implementation is included.

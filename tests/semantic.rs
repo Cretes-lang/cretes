@@ -1107,3 +1107,15 @@ fn result_temporaries_survive_until_enclosing_expression_completes() {
     good("fn take(a:Result[i64,text],b:i64)->(){discard(a,\"handled\");} fn f(a:Result[i64,text])->(){take(a,2);}");
     good("fn f(b:Result[i64,text])->Result[(),text]{let pair=(1,b?);discard(pair,\"handled\");return Result::Ok(());}");
 }
+
+#[test]
+fn result_recursive_container_loop_shapes_are_bounded() {
+    good("enum Chain{End(Result[i64,text]),More(Seq[Chain]),} fn f(r:Result[i64,text])->(){var chain=Chain::End(r);loop{chain=Chain::More([chain]);}}");
+    bad("enum Chain{End(Result[i64,text]),More(Seq[Chain]),} fn f(r:Result[i64,text],b:bool)->(){var chain=Chain::End(r);while b{chain=Chain::More([chain]);}}", "T003");
+}
+
+#[test]
+fn result_while_condition_rechecks_back_edge_obligations() {
+    good("fn handle(r:Result[i64,text])->bool{discard(r,\"handled\");return true;} fn f(r:Result[i64,text])->(){var current=r;while handle(current){current=Result::Ok(1);}}");
+    bad("fn f(r:Result[bool,text])->Result[(),text]{var condition=r;var pending:Option[Result[i64,text]]=Option::None();while condition?{pending=Option::Some(Result::Ok(1));condition=Result::Ok(true);}discard(pending,\"handled after loop\");return Result::Ok(());}", "T003");
+}

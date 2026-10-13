@@ -1,10 +1,11 @@
 //! Pattern-matrix specialization checks both usefulness and exhaustiveness.
 use super::*;
 use crate::token::Kind;
+use std::rc::Rc;
 #[derive(Clone)]
 enum Pat {
     Any,
-    Constructor(String, Vec<Pat>),
+    Constructor(String, Vec<Rc<Pat>>),
 }
 impl Analyzer<'_> {
     pub(super) fn match_coverage(
@@ -16,6 +17,9 @@ impl Analyzer<'_> {
     ) {
         let mut matrix = vec![];
         for p in patterns {
+            if self.exhausted {
+                return;
+            }
             let pat = self.cover_pattern(m, *p, 0);
             if !self.useful(&matrix, &[pat.clone()], &[ty], self.span(m, *p), 0) && !self.exhausted
             {
@@ -27,7 +31,8 @@ impl Analyzer<'_> {
             }
             matrix.push(vec![pat]);
         }
-        if self.useful(&matrix, &[Pat::Any], &[ty], self.span(m, n), 0) && !self.exhausted {
+        if self.useful(&matrix, &[Rc::new(Pat::Any)], &[ty], self.span(m, n), 0) && !self.exhausted
+        {
             self.error(
                 "T002",
                 self.span(m, n),
@@ -35,11 +40,11 @@ impl Analyzer<'_> {
             );
         }
     }
-    fn cover_pattern(&mut self, m: ModuleId, n: NodeId, depth: usize) -> Pat {
+    fn cover_pattern(&mut self, m: ModuleId, n: NodeId, depth: usize) -> Rc<Pat> {
         if !self.tick(self.span(m, n), depth) {
-            return Pat::Any;
+            return Rc::new(Pat::Any);
         }
-        match self.node(m, n) {
+        Rc::new(match self.node(m, n) {
             NodeKind::ConstructorPattern { path, fields } => Pat::Constructor(
                 self.path(m, &path).last().cloned().unwrap_or_default(),
                 fields
@@ -80,7 +85,7 @@ impl Analyzer<'_> {
                 Pat::Constructor(key, vec![])
             }
             _ => Pat::Any,
-        }
+        })
     }
     fn constructors(&self, t: TypeId) -> Option<Vec<(String, Vec<TypeId>)>> {
         let t = match self.result.types.get(t) {
@@ -108,8 +113,8 @@ impl Analyzer<'_> {
     }
     fn useful(
         &mut self,
-        matrix: &[Vec<Pat>],
-        row: &[Pat],
+        matrix: &[Vec<Rc<Pat>>],
+        row: &[Rc<Pat>],
         types: &[TypeId],
         span: Span,
         depth: usize,
@@ -126,7 +131,58 @@ impl Analyzer<'_> {
         if matrix.is_empty() {
             return true;
         }
-        match &row[0] {
+        // Patterns share immutable subtrees, so cloning a matrix cell is O(1).
+        // Charge the worst-case expanded matrix before allocating any rows.
+        let width = match self.result.types.get(types[0]) {
+            Some(Type::Reference { target, .. }) => *target,
+            _ => types[0],
+        };
+        let arity = match self.result.types.get(width) {
+            Some(Type::Tuple(ts)) => ts.len(),
+            Some(Type::Nominal(s)) => self
+                .result
+                .enums
+                .get(s)
+                .map(|vs| vs.iter().map(|v| v.payload.len()).max().unwrap_or(0))
+                .unwrap_or(0),
+            Some(Type::Builtin { name, .. }) if name == "Option" || name == "Result" => 1,
+            _ => 0,
+        };
+        let constructor_storage = match self.result.types.get(width) {
+            Some(Type::Nominal(s)) => self
+                .result
+                .enums
+                .get(s)
+                .map(|vs| {
+                    vs.iter().fold(0usize, |cost, v| {
+                        cost.saturating_add(v.name.len())
+                            .saturating_add(v.payload.len())
+                            .saturating_add(1)
+                    })
+                })
+                .unwrap_or(0),
+            _ => arity.saturating_add(2),
+        };
+        let cells = matrix
+            .len()
+            .saturating_add(1)
+            .saturating_mul(row.len().saturating_add(arity).saturating_add(1));
+        self.work = self
+            .work
+            .saturating_add(cells)
+            .saturating_add(constructor_storage);
+        if !self.tick(span, depth) {
+            return false;
+        }
+        // An all-wildcard row already covers this product. Avoid enumerating
+        // every boolean/enum combination in the remaining columns.
+        if matrix
+            .iter()
+            .any(|r| r.len() == row.len() && r.iter().all(|p| matches!(p.as_ref(), Pat::Any)))
+        {
+            return false;
+        }
+        match row[0].as_ref() {
             Pat::Constructor(key, fields) => {
                 let ts = self
                     .constructors(types[0])
@@ -145,8 +201,13 @@ impl Analyzer<'_> {
             Pat::Any => {
                 if let Some(constructors) = self.constructors(types[0]) {
                     for (key, ts) in constructors {
+                        self.work = self.work.saturating_add(cells);
+                        if !self.tick(span, depth) {
+                            return false;
+                        }
                         let specialized = specialize(matrix, &key, ts.len());
-                        let mut candidate = vec![Pat::Any; ts.len()];
+                        let any = Rc::new(Pat::Any);
+                        let mut candidate = vec![any; ts.len()];
                         candidate.extend_from_slice(&row[1..]);
                         let mut new_types = ts;
                         new_types.extend_from_slice(&types[1..]);
@@ -158,7 +219,7 @@ impl Analyzer<'_> {
                 } else {
                     let defaults: Vec<_> = matrix
                         .iter()
-                        .filter(|r| matches!(r.first(), Some(Pat::Any)))
+                        .filter(|r| r.first().is_some_and(|p| matches!(p.as_ref(), Pat::Any)))
                         .map(|r| r[1..].to_vec())
                         .collect();
                     self.useful(&defaults, &row[1..], &types[1..], span, depth + 1)
@@ -167,12 +228,13 @@ impl Analyzer<'_> {
         }
     }
 }
-fn specialize(matrix: &[Vec<Pat>], key: &str, arity: usize) -> Vec<Vec<Pat>> {
+fn specialize(matrix: &[Vec<Rc<Pat>>], key: &str, arity: usize) -> Vec<Vec<Rc<Pat>>> {
     matrix
         .iter()
-        .filter_map(|row| match row.first() {
+        .filter_map(|row| match row.first().map(Rc::as_ref) {
             Some(Pat::Any) => {
-                let mut r = vec![Pat::Any; arity];
+                let any = Rc::new(Pat::Any);
+                let mut r = vec![any; arity];
                 r.extend_from_slice(&row[1..]);
                 Some(r)
             }

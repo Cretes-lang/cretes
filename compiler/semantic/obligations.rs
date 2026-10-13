@@ -15,12 +15,14 @@ enum Part {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Value {
     unknown: bool,
+    height: usize,
     parts: BTreeMap<Part, Value>,
 }
 impl Value {
     fn unknown() -> Self {
         Self {
             unknown: true,
+            height: 0,
             parts: BTreeMap::new(),
         }
     }
@@ -41,9 +43,17 @@ impl Value {
     fn owns(&self) -> bool {
         self.unknown || !self.parts.is_empty()
     }
-    fn insert(&mut self, key: Part, value: Value) {
+    fn insert(&mut self, key: Part, mut value: Value) {
         if value.owns() {
-            self.parts.entry(key).or_default().merge(value);
+            // Recursive containers can grow at loop back edges without growing
+            // the source AST. Widen deep projections to a may-own value so the
+            // abstract domain and recursive clone/drop depth remain bounded.
+            if value.height >= 64 {
+                value = Self::unknown();
+            }
+            let child = self.parts.entry(key).or_default();
+            child.merge(value);
+            self.height = self.height.max(child.height + 1);
         }
     }
     fn merge(&mut self, other: Value) {
@@ -610,20 +620,10 @@ impl Analyzer<'_> {
                 return a;
             }
             NodeKind::Loop { body } => {
-                return self.obligation_loop(c, body, pending, false, depth + 1)
+                return self.obligation_loop(c, body, pending, None, depth + 1)
             }
             NodeKind::While { condition, body } => {
-                self.obligation_expression(c, condition, &mut pending, false, depth + 1);
-                let literal = self.obligation_boolean(m, condition);
-                if literal != Some(false) {
-                    return self.obligation_loop(
-                        c,
-                        body,
-                        pending,
-                        literal != Some(true),
-                        depth + 1,
-                    );
-                }
+                return self.obligation_loop(c, body, pending, Some(condition), depth + 1);
             }
             NodeKind::For { iterable, body, .. } => {
                 return self.obligation_for(c, n, iterable, body, pending, depth + 1);
@@ -862,7 +862,7 @@ impl Analyzer<'_> {
         c: &Context,
         body: NodeId,
         initial: Pending,
-        may_skip: bool,
+        condition: Option<NodeId>,
         depth: usize,
     ) -> Exits {
         let mut header = initial;
@@ -871,7 +871,18 @@ impl Analyzer<'_> {
             if !self.tick(self.span(c.module, body), depth) {
                 break;
             }
-            let flow = self.obligation_statement(c, body, header.clone(), depth + 1);
+            let mut state = header.clone();
+            if let Some(condition) = condition {
+                self.obligation_expression(c, condition, &mut state, false, depth + 1);
+                let literal = self.obligation_boolean(c.module, condition);
+                if literal != Some(true) {
+                    join(&mut exit, Some(state.clone()));
+                }
+                if literal == Some(false) {
+                    break;
+                }
+            }
+            let flow = self.obligation_statement(c, body, state, depth + 1);
             join(&mut exit, flow.breaks);
             let mut back = flow.next;
             join(&mut back, flow.continues);
@@ -885,9 +896,6 @@ impl Analyzer<'_> {
                 break;
             }
             header = next;
-        }
-        if may_skip {
-            join(&mut exit, Some(header));
         }
         Exits {
             next: exit,

@@ -212,14 +212,17 @@ unvisited Results; borrowed iteration leaves ownership with the original value.
 Earlier call arguments and aggregate elements remain tracked as temporaries while
 later expressions execute, so propagation cannot silently drop them.
 
-Ten new regression tests cover these positive and negative cases. Local Rust 1.85.1
-Linux validation: 328 tests (165 semantic, 12 CLI, 151 other frontend) pass; format,
+Twelve new regression tests cover these positive and negative cases. Local Rust 1.85.1
+Linux validation: 330 tests (167 semantic, 12 CLI, 151 other frontend) pass; format,
 Clippy with warnings denied and release build pass. Published-revision cross-platform
 CI must be checked separately. This checkpoint supersedes the two concrete false
 rejections recorded in issue #5; it is not a Phase 5 completion certificate.
 
-Remaining review: conservative loop/cardinality precision; repeated while-condition
-effects; reference mutation and the ownership/loan-stage contract; state-copy and
-recursive-shape amplification; final traceability and integration review. No full
+Recursive container shapes widen to an unknown may-own obligation at 64 projection
+levels, bounding loop-domain growth without changing source nesting limits. This
+can conservatively lose deep empty-payload precision. While conditions are
+reevaluated at abstract back edges, including propagation and argument transfers.
+
+Remaining review: conservative loop/cardinality precision; reference mutation and the ownership/loan-stage contract; remaining state-copy amplification; final traceability and integration review. No full
 move/loan checker, backend or runtime is introduced. Phase 3's announced review
 period and formal Phase 4/5 reconciliation remain pending.

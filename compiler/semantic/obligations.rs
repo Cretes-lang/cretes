@@ -345,10 +345,18 @@ impl Analyzer<'_> {
             } => {
                 self.obligation_expression(c, left, pending, false, depth + 1);
                 if matches!(operator, Kind::AndAnd | Kind::OrOr) {
-                    let before = pending.clone();
-                    self.obligation_expression(c, right, pending, false, depth + 1);
-                    for (s, v) in before {
-                        pending.entry(s).or_default().merge(v);
+                    // Only join a skipped RHS when that execution path exists.
+                    // Type checking still validates both operands independently.
+                    let left_value = self.obligation_boolean(m, left);
+                    let run_on = operator == Kind::AndAnd;
+                    if left_value == Some(run_on) {
+                        self.obligation_expression(c, right, pending, false, depth + 1);
+                    } else if left_value.is_none() {
+                        let before = pending.clone();
+                        self.obligation_expression(c, right, pending, false, depth + 1);
+                        for (s, v) in before {
+                            pending.entry(s).or_default().merge(v);
+                        }
                     }
                 } else {
                     self.obligation_expression(c, right, pending, false, depth + 1);

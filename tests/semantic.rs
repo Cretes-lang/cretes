@@ -1181,3 +1181,22 @@ fn semantic_handoff_keeps_target_and_session_identity() {
         }
     }
 }
+
+#[test]
+fn result_short_circuit_skips_unreachable_obligations() {
+    good("fn f(r:Result[bool,text],other:Result[i64,text])->Result[(),text]{let a=false && r?;let b=true || r?;discard(r,\"handled\");discard(other,\"handled\");return Result::Ok(());}");
+}
+#[test]
+fn result_short_circuit_guaranteed_rhs_transfers_obligation() {
+    good("fn take(r:Result[i64,text])->bool{discard(r,\"handled\");return true;} fn f(r:Result[i64,text])->(){let x=true && take(r);}");
+    good("fn take(r:Result[i64,text])->bool{discard(r,\"handled\");return true;} fn f(r:Result[i64,text])->(){let x=false || take(r);}");
+}
+#[test]
+fn result_short_circuit_unknown_rhs_preserves_skip_path() {
+    bad("fn take(r:Result[i64,text])->bool{discard(r,\"handled\");return true;} fn f(flag:bool,r:Result[i64,text])->(){let x=flag && take(r);}", "T003");
+    bad("fn take(r:Result[i64,text])->bool{discard(r,\"handled\");return true;} fn f(flag:bool,r:Result[i64,text])->(){let x=flag || take(r);}", "T003");
+}
+#[test]
+fn result_short_circuit_reachable_propagation_checks_other_owners() {
+    bad("fn f(r:Result[bool,text],other:Result[i64,text])->Result[(),text]{let x=true && r?;discard(other,\"handled\");return Result::Ok(());}", "T003");
+}

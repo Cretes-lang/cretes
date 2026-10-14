@@ -8,10 +8,10 @@ Current implementation is on `main`, against Phase 3 candidate revision
 Maintainer approval was reiterated on 2026-10-13; it does not establish passing
 completion evidence or change the recorded review-period end date.
 
-Latest local control-flow checkpoint: **335 passing tests** (172 semantic, 12 CLI,
+Latest local reference-validation checkpoint: **338 passing tests** (175 semantic, 12 CLI,
 151 other frontend), formatting, Clippy and release build pass. See
 [semantic handoff, traceability and review disposition](SEMANTIC-HANDOFF.md).
-PR #12's earlier 331-test revision passed Linux/Windows/macOS CI; the latest
+PR #13's earlier 335-test revision passed Linux/Windows/macOS CI; the latest
 checkpoint requires its own final-head CI. Historical dated evidence below is
 retained for audit and does not supersede this current summary.
 
@@ -255,3 +255,23 @@ Local Rust 1.85.1/Linux: 335 tests pass (172 semantic, 12 CLI, 151 frontend),
 formatting, Clippy with warnings denied and release build pass. Final-head remote
 CI evidence belongs in the implementation PR. This focused correction does not
 close cardinality, indirect mutation or the broader resource/security review.
+
+
+## Inferred-reference validation review — 2026-10-14
+
+The candidate excludes reference-to-reference types regardless of whether their
+type was written explicitly or inferred. Previously only type-syntax resolution
+checked this rule. `let rr = &mut r` could infer an excluded type and allow an
+indirect reassignment of a reference binding to bypass direct return-provenance
+tracking. This was reproduced as an incorrectly successful semantic result.
+
+The common interned-type validation pass now rejects inferred nested references
+with B002. Three regression tests cover shared/exclusive nested inference,
+indirect mutation before a `from` return, and valid shared/exclusive reborrows of
+the actual referent. Two negative tests failed before the fix; all pass afterward.
+This enforces the existing reference-storage and LANG-PARAM-001 restrictions, not a new loan checker.
+
+Local Rust 1.85.1/Linux: 338 tests pass (175 semantic, 12 CLI, 151 frontend),
+format, Clippy -D warnings and release build pass. Final-head platform CI must be
+recorded in the PR. General indirect Result mutation, alias/loan validity,
+cardinality precision and broader resource-amplification review remain open.

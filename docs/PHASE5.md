@@ -1,6 +1,6 @@
 # Phase 5 provisional implementation checkpoint
 
-Status: **in progress; not formally closed**. Updated 2026-10-13.
+Status: **in progress; not formally closed**. Updated 2026-10-14.
 
 Current implementation is on `main`, against Phase 3 candidate revision
 `fe6d0d48518d0419d59fb680673150c92b6a084c`. Phase 2 was accepted on
@@ -8,10 +8,10 @@ Current implementation is on `main`, against Phase 3 candidate revision
 Maintainer approval was reiterated on 2026-10-13; it does not establish passing
 completion evidence or change the recorded review-period end date.
 
-Latest local handoff checkpoint: **331 passing tests** (168 semantic, 12 CLI,
+Latest local control-flow checkpoint: **335 passing tests** (172 semantic, 12 CLI,
 151 other frontend), formatting, Clippy and release build pass. See
 [semantic handoff, traceability and review disposition](SEMANTIC-HANDOFF.md).
-PR #11's earlier 330-test revision passed Linux/Windows/macOS CI; the latest
+PR #12's earlier 331-test revision passed Linux/Windows/macOS CI; the latest
 checkpoint requires its own final-head CI. Historical dated evidence below is
 retained for audit and does not supersede this current summary.
 
@@ -236,3 +236,22 @@ reevaluated at abstract back edges, including propagation and argument transfers
 Remaining review: conservative loop/cardinality precision; reference mutation and the ownership/loan-stage contract; remaining state-copy amplification; final traceability and integration review. No full
 move/loan checker, backend or runtime is introduced. Phase 3's announced review
 period and formal Phase 4/5 reconciliation remain pending.
+
+
+## Short-circuit Result flow review — 2026-10-14
+
+The Result-obligation pass now distinguishes a skipped, guaranteed or conditional
+right operand of `&&` and `||`. A literal left operand no longer introduces an
+impossible skipped path or visits an unreachable propagation. Both operands
+remain subject to the separate type checker. Unknown conditions retain both
+possible obligation states. No syntax or language decision changed.
+
+Four regression tests cover skipped propagation with another live owner,
+guaranteed consumption for both operators, conditional consumption for both
+operators, and reachable propagation with another unhandled owner. A guaranteed
+consumption case reproduced T003 before the fix and passes afterward.
+
+Local Rust 1.85.1/Linux: 335 tests pass (172 semantic, 12 CLI, 151 frontend),
+formatting, Clippy with warnings denied and release build pass. Final-head remote
+CI evidence belongs in the implementation PR. This focused correction does not
+close cardinality, indirect mutation or the broader resource/security review.

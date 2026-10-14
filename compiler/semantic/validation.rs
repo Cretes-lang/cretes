@@ -24,6 +24,13 @@ impl Analyzer<'_> {
                 continue;
             };
             match ty {
+                // Borrow expressions can infer types without passing through
+                // explicit type-syntax resolution. Apply the same exclusion.
+                Type::Reference { target, .. }
+                    if matches!(self.result.types.get(target), Some(Type::Reference { .. })) =>
+                {
+                    self.error("B002", span, "reference-to-reference types are excluded");
+                }
                 Type::Builtin { name, arguments } => {
                     if arguments
                         .iter()

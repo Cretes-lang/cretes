@@ -122,13 +122,20 @@ fn semantic_cli_dump_is_deterministic() {
     let b = analyze_file(&input, &["--entry", "app"]);
     assert!(a.status.success());
     assert_eq!(a.stdout, b.stdout);
-    assert!(String::from_utf8(a.stdout).unwrap().contains("module app"));
+    let dump = String::from_utf8(a.stdout).unwrap();
+    assert!(dump.contains("module app"));
+    assert!(dump.starts_with(
+        "implemented checks: passed\nmove/loan safety: not analyzed\ntarget pointer bits: 64\n"
+    ));
 }
 #[test]
 fn semantic_cli_reports_result_obligation_as_json() {
     let input = Input::new(b"fn f(r:Result[i64,text])->(){}");
     let out = analyze_file(&input, &["--json-diagnostics"]);
     assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8(out.stdout)
+        .unwrap()
+        .starts_with("implemented checks: failed\nmove/loan safety: not analyzed\n"));
     assert!(String::from_utf8(out.stderr)
         .unwrap()
         .contains("\"code\":\"T003\""));

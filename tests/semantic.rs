@@ -1119,3 +1119,65 @@ fn result_while_condition_rechecks_back_edge_obligations() {
     good("fn handle(r:Result[i64,text])->bool{discard(r,\"handled\");return true;} fn f(r:Result[i64,text])->(){var current=r;while handle(current){current=Result::Ok(1);}}");
     bad("fn f(r:Result[bool,text])->Result[(),text]{var condition=r;var pending:Option[Result[i64,text]]=Option::None();while condition?{pending=Option::Some(Result::Ok(1));condition=Result::Ok(true);}discard(pending,\"handled after loop\");return Result::Ok(());}", "T003");
 }
+
+#[test]
+fn semantic_handoff_keeps_target_and_session_identity() {
+    let mut sm = SourceManager::default();
+    let library = sm.add(
+        "library.cretes",
+        b"pub fn identity(x:&i64)->&i64 from x{return x;}".as_slice(),
+    );
+    let application = sm.add(
+        "application.cretes",
+        b"import library; fn use_it(x:&i64)->&i64 from x{return library::identity(x);}".as_slice(),
+    );
+    // Deliberately oppose input order and source ID order to semantic module order.
+    let inputs = [
+        ModuleInput {
+            identity: "library",
+            source: sm.get(library).unwrap(),
+        },
+        ModuleInput {
+            identity: "application",
+            source: sm.get(application).unwrap(),
+        },
+    ];
+    for width in [32, 64] {
+        let r = analyze(
+            &inputs,
+            SemanticOptions {
+                target_pointer_bits: width,
+                ..SemanticOptions::default()
+            },
+        );
+        assert!(r.is_valid(), "{:?}", r.diagnostics);
+        assert_eq!(r.target_pointer_bits, width);
+        assert_eq!(r.modules[0].identity, "application");
+        assert_eq!(r.modules[1].identity, "library");
+        assert_eq!(r.modules[0].imports["library"].0, 1);
+        for (index, module) in r.modules.iter().enumerate() {
+            let source_id = if index == 0 { application } else { library };
+            for node in &module.ast.nodes {
+                assert_eq!(node.span.source, source_id);
+                assert!(sm.get(source_id).unwrap().slice(node.span).is_some());
+            }
+            for (node, ty) in &module.node_types {
+                assert!(*node < module.ast.nodes.len());
+                assert!(r.types.get(*ty).is_some());
+            }
+            for (node, symbol) in &module.resolutions {
+                assert!(*node < module.ast.nodes.len());
+                let declaration = &r.symbols[symbol.0];
+                assert!(declaration.node.0 < r.modules[declaration.module.0].ast.nodes.len());
+            }
+        }
+        for signature in r.signatures.values() {
+            assert_eq!(signature.from, Some(0));
+            assert!(matches!(
+                r.types.get(signature.parameters[0]),
+                Some(Type::Reference { mutable: false, .. })
+            ));
+            assert_eq!(signature.result, signature.parameters[0]);
+        }
+    }
+}

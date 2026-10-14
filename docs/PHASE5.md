@@ -1,10 +1,19 @@
 # Phase 5 provisional implementation checkpoint
 
-Status: **in progress; not complete or accepted**. Recorded 2026-10-09.
+Status: **in progress; not formally closed**. Updated 2026-10-13.
 
-This branch implements against Phase 3 candidate spec revision
-`fe6d0d48518d0419d59fb680673150c92b6a084c`. Phase 2/3 acceptance remains
-pending. It does not update RFC status or begin Phase 6.
+Current implementation is on `main`, against Phase 3 candidate revision
+`fe6d0d48518d0419d59fb680673150c92b6a084c`. Phase 2 was accepted on
+2026-10-10. Phase 3's announced final-comment period runs through 2026-10-19 UTC.
+Maintainer approval was reiterated on 2026-10-13; it does not establish passing
+completion evidence or change the recorded review-period end date.
+
+Latest local handoff checkpoint: **331 passing tests** (168 semantic, 12 CLI,
+151 other frontend), formatting, Clippy and release build pass. See
+[semantic handoff, traceability and review disposition](SEMANTIC-HANDOFF.md).
+PR #11's earlier 330-test revision passed Linux/Windows/macOS CI; the latest
+checkpoint requires its own final-head CI. Historical dated evidence below is
+retained for audit and does not supersede this current summary.
 
 ## Current implementation
 
@@ -60,12 +69,13 @@ changes require their own CI confirmation; these local results do not imply it.
 
 ## Remaining work and known limitations
 
-- Complete projection-aware Result obligations and collection iteration flow.
+- Projection-aware Result shapes and owned iteration are implemented in #11;
+  complete indirect-mutation and conservative-cardinality integration review.
 - Complete ownership/loan-stage integration and resource review throughout
   recursive helpers. Direct return provenance is now checked, but there is no
   completed borrow checker.
-- Finish a typed handoff that exposes all later-stage safety metadata. The
-  experimental inspection command is implemented; it is not `cretes check`.
+- Typed AST/session/target handoff and inspection contract are documented and
+  tested; the later move/loan safety stage remains unimplemented.
 - Expand adversarial semantic cases beyond the 14 canonical examples now covered
   with explicit test-only contracts for conceptual standard-library APIs.
 - Complete semantic traceability, fuzz/adversarial review, measured performance

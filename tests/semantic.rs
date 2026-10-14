@@ -1200,3 +1200,21 @@ fn result_short_circuit_unknown_rhs_preserves_skip_path() {
 fn result_short_circuit_reachable_propagation_checks_other_owners() {
     bad("fn f(r:Result[bool,text],other:Result[i64,text])->Result[(),text]{let x=true && r?;discard(other,\"handled\");return Result::Ok(());}", "T003");
 }
+
+#[test]
+fn inferred_reference_to_reference_is_rejected() {
+    bad("fn f(x:&i64)->(){let rr=&x;}", "B002");
+    bad("fn f(x:&i64)->(){var r=x;let rr=&mut r;}", "B002");
+}
+#[test]
+fn inferred_reference_cannot_hide_return_origin_mutation() {
+    bad(
+        "fn f(x:&i64,y:&i64)->&i64 from x{var r=x;let rr=&mut r;*rr=y;return r;}",
+        "B002",
+    );
+}
+#[test]
+fn inferred_reborrow_of_referent_remains_valid() {
+    good("fn f(x:&mut i64)->&i64 from x{let r=&*x;return r;}");
+    good("fn f(x:&mut i64)->&mut i64 from x{let r=&mut *x;return r;}");
+}

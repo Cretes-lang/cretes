@@ -92,6 +92,8 @@ pub struct Module {
 }
 #[derive(Debug)]
 pub struct SemanticResult {
+    /// Target width used by numeric checks; retain it with these session tables.
+    pub target_pointer_bits: u8,
     pub modules: Vec<Module>,
     pub symbols: Vec<Symbol>,
     pub scopes: Vec<Scope>,
@@ -111,7 +113,11 @@ impl SemanticResult {
             .any(|d| d.severity == Severity::Error)
     }
     pub fn dump(&self) -> String {
-        let mut s = String::new();
+        let mut s = format!(
+            "implemented checks: {}\nmove/loan safety: not analyzed\ntarget pointer bits: {}\n",
+            if self.is_valid() { "passed" } else { "failed" },
+            self.target_pointer_bits
+        );
         for (id, t) in self.types.iter() {
             s.push_str(&format!("type {}: {t:?}\n", id.0));
         }
@@ -174,6 +180,7 @@ pub fn analyze(inputs: &[ModuleInput<'_>], options: SemanticOptions) -> Semantic
     let mut a = Analyzer {
         sources: vec![],
         result: SemanticResult {
+            target_pointer_bits: options.target_pointer_bits,
             modules: vec![],
             symbols: vec![],
             scopes: vec![],

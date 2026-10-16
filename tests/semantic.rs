@@ -1218,3 +1218,66 @@ fn inferred_reborrow_of_referent_remains_valid() {
     good("fn f(x:&mut i64)->&i64 from x{let r=&*x;return r;}");
     good("fn f(x:&mut i64)->&mut i64 from x{let r=&mut *x;return r;}");
 }
+
+#[test]
+fn result_literal_iteration_has_exact_cardinality() {
+    good("fn f(r:Result[i64,text])->(){for x in [1]{discard(r,\"handled on guaranteed iteration\");}}");
+    good("fn f(r:Result[i64,text])->(){for item in [r]{discard(item,\"handled\");break;}}");
+    bad("fn f(a:Result[i64,text],b:Result[i64,text])->(){for item in [a,b]{discard(item,\"handled\");break;}}", "T003");
+}
+#[test]
+fn result_literal_iteration_preserves_element_order() {
+    good("fn f(r:Result[i64,text])->Result[(),text]{for item in [Option::Some(r),Option::None()]{match item{Option::Some(value)=>{let x=value?;}Option::None()=>{}}}return Result::Ok(());}");
+    bad("fn f(r:Result[i64,text])->Result[(),text]{for item in [Option::None(),Option::Some(r)]{return Result::Ok(());}return Result::Ok(());}", "T003");
+}
+
+#[test]
+fn result_literal_iteration_continue_and_break_paths() {
+    good("fn f(r:Result[i64,text])->(){for x in ([1]){discard(r,\"handled\");continue;}}");
+    bad(
+        "fn f(r:Result[i64,text],b:bool)->(){for x in [1]{if b{break;}discard(r,\"handled\");}}",
+        "T003",
+    );
+    good("fn f(a:Result[i64,text],b:Result[i64,text])->(){for item in [a,b]{loop{break;}discard(item,\"handled\");continue;}}");
+}
+
+#[test]
+fn result_literal_iteration_repeated_body_work_is_bounded() {
+    let mut source = String::from("fn f()->(){");
+    for _ in 0..12 {
+        source.push_str("for x in [1,2]{");
+    }
+    source.push_str("discard(1,\"bounded\");");
+    source.push_str(&"}".repeat(13));
+    let mut sm = SourceManager::default();
+    let id = sm.add("test", source.as_bytes());
+    let r = analyze(
+        &[ModuleInput {
+            identity: "test",
+            source: sm.get(id).unwrap(),
+        }],
+        SemanticOptions {
+            work: 10000,
+            ..SemanticOptions::default()
+        },
+    );
+    assert!(
+        r.diagnostics.iter().any(|d| d.code == "R001"),
+        "{:?}",
+        r.diagnostics
+    );
+}
+
+#[test]
+fn result_indirect_empty_write_requires_obligation_tracking() {
+    bad(
+        "fn f(slot:&mut Option[Result[i64,text]])->(){*slot=Option::None();}",
+        "T003",
+    );
+    bad("struct Holder{item:Option[Result[i64,text]],} fn f(slot:&mut Holder)->(){(*slot).item=Option::None();}", "T003");
+}
+#[test]
+fn result_indirect_non_result_write_remains_valid() {
+    good("fn f(slot:&mut i64)->(){*slot=2;}");
+    good("fn f()->(){var slot:Option[Result[i64,text]]=Option::None();slot=Option::None();}");
+}

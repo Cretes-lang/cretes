@@ -1,6 +1,6 @@
 # Phase 5 provisional implementation checkpoint
 
-Status: **in progress; not formally closed**. Updated 2026-10-14.
+Status: **in progress; not formally closed**. Updated 2026-10-16.
 
 Current implementation is on `main`, against Phase 3 candidate revision
 `fe6d0d48518d0419d59fb680673150c92b6a084c`. Phase 2 was accepted on
@@ -8,10 +8,10 @@ Current implementation is on `main`, against Phase 3 candidate revision
 Maintainer approval was reiterated on 2026-10-13; it does not establish passing
 completion evidence or change the recorded review-period end date.
 
-Latest local reference-validation checkpoint: **338 passing tests** (175 semantic, 12 CLI,
+Latest local integration checkpoint: **344 passing tests** (181 semantic, 12 CLI,
 151 other frontend), formatting, Clippy and release build pass. See
 [semantic handoff, traceability and review disposition](SEMANTIC-HANDOFF.md).
-PR #13's earlier 335-test revision passed Linux/Windows/macOS CI; the latest
+PR #14's earlier 338-test revision passed Linux/Windows/macOS CI; the latest
 checkpoint requires its own final-head CI. Historical dated evidence below is
 retained for audit and does not supersede this current summary.
 
@@ -275,3 +275,41 @@ Local Rust 1.85.1/Linux: 338 tests pass (175 semantic, 12 CLI, 151 frontend),
 format, Clippy -D warnings and release build pass. Final-head platform CI must be
 recorded in the PR. General indirect Result mutation, alias/loan validity,
 cardinality precision and broader resource-amplification review remain open.
+
+
+## Literal iteration and indirect overwrite review — 2026-10-16
+
+The Result-obligation pass now visits literal sequence elements in source order
+with their exact cardinality. It preserves break/continue/return exits without
+inventing an empty iteration path for `[1]`, and checks only the obligations in
+unvisited elements on early exits. Nonliteral iterables still use the conservative
+fixed point. Six new regression tests cover guaranteed execution, grouped literals,
+ordered payloads, break/continue/propagation, nested iteration work limits, and
+indirect assignments. The guaranteed-execution regression failed before the fix.
+Repeated literal-body visits consume the shared work budget and report R001 on
+exhaustion; this is static analysis, not execution or lowering.
+
+A second reproduced gap allowed `*slot = Option::None()` for
+`slot: &mut Option[Result[i64,text]]` without a diagnostic. The unresolved-place
+check now considers the destination type as well as the replacement value, so an
+empty replacement cannot bypass the existing safety-stage boundary. The negative
+regression failed before this fix. Ordinary non-Result reference writes and known
+empty owned storage remain accepted. This is deliberately conservative: precise
+alias-aware Result updates remain incomplete and valid indirect writes may be
+rejected. It is not a new normative language restriction or a complete borrow checker.
+
+Rust 1.85.1/Linux: 344 tests pass (181 semantic, 12 CLI, 151 other frontend),
+formatting and Clippy with warnings denied pass, and the release build passes.
+The existing 500-function/46,280-byte benchmark was rerun with seven samples per
+target on 2026-10-16. Min/median/max in microseconds: 32-bit target
+4,395/4,508/5,372; 64-bit target 4,383/4,599/4,784. These local measurements do not
+measure peak memory or establish cross-machine performance. Published-head CI
+must be verified independently.
+
+Remaining completion blockers: nonliteral cardinality/dynamic-index precision,
+alias-aware Result mutation and ownership-stage integration, broader state-copy
+and peak-working-memory review, final integrated traceability/diff review, and
+formal reconciliation after Phase 3 acceptance. Closing spec#8 with procedural
+deferral on October 15 did not accept the language candidate; rfcs#2 still tracks
+the final-comment decision, no earlier than October 20 00:00 UTC. Phase 5 remains
+in progress. No Phase 6, IR, backend or runtime is implemented.

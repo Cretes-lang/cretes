@@ -582,8 +582,13 @@ impl Analyzer<'_> {
                     if shape.owns() {
                         pending.insert(symbol, shape);
                     }
-                } else if owns.owns() {
-                    self.error("T003", self.span(m, place), "Result storage through this reference requires safety-stage obligation tracking");
+                } else if owns.owns()
+                    || self.owns_result(self.obligation_type(m, place), self.span(m, place))
+                {
+                    // Empty replacement payloads can still destroy an existing
+                    // obligation. Until alias-aware tracking is available, do
+                    // not certify writes to indirect Result-bearing storage.
+                    self.error("T003", self.span(m, place), "Result-bearing storage through this reference requires safety-stage obligation tracking");
                 }
             }
             NodeKind::Return { value } => {
@@ -793,6 +798,76 @@ impl Analyzer<'_> {
         );
         let shape = self.obligation_expression(c, iterable, &mut pending, !borrowed, depth + 1);
         let binding = c.declarations.get(&n.0).copied();
+        // Literal sequences have a finite, exact iteration order. Summarizing
+        // them as an arbitrary sequence invents a zero-iteration path and can
+        // also report obligations in elements that were already consumed.
+        let mut literal = iterable;
+        while let NodeKind::Group { value } = self.node(m, literal) {
+            literal = value;
+        }
+        if !borrowed {
+            if let NodeKind::Sequence { elements } = self.node(m, literal) {
+                let mut next = Some(pending);
+                let mut exit = None;
+                for i in 0..elements.len() {
+                    let Some(mut state) = next.take() else { break };
+                    if !self.tick(self.span(m, n), depth) {
+                        return Exits::default();
+                    }
+                    let mut inner = Context {
+                        module: m,
+                        declarations: Rc::clone(&c.declarations),
+                        temporaries: Cell::new(c.temporaries.get()),
+                        remaining_iterators: c.remaining_iterators.clone(),
+                    };
+                    let remaining = shape
+                        .parts
+                        .range(Part::Element(i + 1)..=Part::Element(usize::MAX))
+                        .next()
+                        .is_some();
+                    if remaining {
+                        inner.remaining_iterators.push(self.span(m, n));
+                    }
+                    if let Some(s) = binding {
+                        let value = self.project_obligation(
+                            &shape,
+                            Part::Element(i),
+                            self.result.symbols[s.0].ty,
+                            self.span(m, n),
+                        );
+                        if value.owns() {
+                            state.insert(s, value);
+                        }
+                    }
+                    let mut flow = self.obligation_statement(&inner, body, state, depth + 1);
+                    if remaining && flow.breaks.is_some() {
+                        self.error(
+                            "T003",
+                            self.span(m, n),
+                            "break may drop unvisited Result obligations in owned iteration",
+                        );
+                    }
+                    for state in [&mut flow.next, &mut flow.continues, &mut flow.breaks]
+                        .into_iter()
+                        .flatten()
+                    {
+                        if let Some(s) = binding {
+                            if let Some(value) = state.remove(&s) {
+                                self.unhandled(m, body, &BTreeMap::from([(s, value)]));
+                            }
+                        }
+                    }
+                    join(&mut exit, flow.breaks);
+                    next = flow.next;
+                    join(&mut next, flow.continues);
+                }
+                join(&mut exit, next);
+                return Exits {
+                    next: exit,
+                    ..Exits::default()
+                };
+            }
+        }
         let element = binding
             .map(|s| {
                 self.project_obligation(

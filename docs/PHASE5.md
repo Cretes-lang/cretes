@@ -313,3 +313,11 @@ formal reconciliation after Phase 3 acceptance. Closing spec#8 with procedural
 deferral on October 15 did not accept the language candidate; rfcs#2 still tracks
 the final-comment decision, no earlier than October 20 00:00 UTC. Phase 5 remains
 in progress. No Phase 6, IR, backend or runtime is implemented.
+
+## Historical branch reconciliation — 2026-10-17
+
+PR #7 predates the integration checkpoints merged through #15. Its stale
+branch removed cumulative session limits and regression coverage. Reconciliation
+restores the current main implementation, tests and report before merging that
+history. This is branch repair, not new semantic functionality or Phase 5 closure.
+The integration, security and accepted-revision gates above remain open.

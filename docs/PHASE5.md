@@ -1,10 +1,19 @@
 # Phase 5 provisional implementation checkpoint
 
-Status: **in progress; not complete or accepted**. Recorded 2026-10-09.
+Status: **in progress; not formally closed**. Updated 2026-10-16.
 
-This branch implements against Phase 3 candidate spec revision
-`fe6d0d48518d0419d59fb680673150c92b6a084c`. Phase 2/3 acceptance remains
-pending. It does not update RFC status or begin Phase 6.
+Current implementation is on `main`, against Phase 3 candidate revision
+`fe6d0d48518d0419d59fb680673150c92b6a084c`. Phase 2 was accepted on
+2026-10-10. Phase 3's announced final-comment period runs through 2026-10-19 UTC.
+Maintainer approval was reiterated on 2026-10-13; it does not establish passing
+completion evidence or change the recorded review-period end date.
+
+Latest local integration checkpoint: **344 passing tests** (181 semantic, 12 CLI,
+151 other frontend), formatting, Clippy and release build pass. See
+[semantic handoff, traceability and review disposition](SEMANTIC-HANDOFF.md).
+PR #14's earlier 338-test revision passed Linux/Windows/macOS CI; the latest
+checkpoint requires its own final-head CI. Historical dated evidence below is
+retained for audit and does not supersede this current summary.
 
 ## Current implementation
 
@@ -49,7 +58,7 @@ move/loan safety or full language validity**. Rust APIs and dumps remain experim
 
 Rust 1.85.1, Linux, 2026-10-09:
 
-- `cargo test --locked`: 276 tests passed (158 existing + 118 semantic).
+- `cargo test --locked`: 315 tests passed (152 semantic + 12 CLI + 151 other frontend).
 - `cargo fmt --all -- --check`: passed.
 - `cargo clippy --all-targets --locked -- -D warnings`: passed.
 
@@ -60,14 +69,15 @@ changes require their own CI confirmation; these local results do not imply it.
 
 ## Remaining work and known limitations
 
-- Implement bound Result obligations and expand control-flow integration tests.
+- Projection-aware Result shapes and owned iteration are implemented in #11;
+  complete indirect-mutation and conservative-cardinality integration review.
 - Complete ownership/loan-stage integration and resource review throughout
   recursive helpers. Direct return provenance is now checked, but there is no
   completed borrow checker.
-- Finish a typed handoff that exposes all later-stage metadata and a documented
-  inspection command without implying production `cretes check` semantics.
-- Expand canonical semantic validation using explicit test-only contracts for
-  conceptual standard-library APIs; the existing 14 examples remain syntax tests.
+- Typed AST/session/target handoff and inspection contract are documented and
+  tested; the later move/loan safety stage remains unimplemented.
+- Expand adversarial semantic cases beyond the 14 canonical examples now covered
+  with explicit test-only contracts for conceptual standard-library APIs.
 - Complete semantic traceability, fuzz/adversarial review, measured performance
   baseline, cross-platform CI and full integration review.
 - Reconcile any accepted specification changes before formal closure.
@@ -89,3 +99,225 @@ unimplemented safety boundary; success must not be advertised as memory safety.
 The PR was marked ready for review by the maintainer after the previous
 checkpoint. That UI status does not satisfy the three unchecked completion
 gates. New commits require fresh review and their own cross-platform CI evidence.
+
+## Further integration checkpoint — 2026-10-09
+
+Local suite: **313 passing tests** (150 semantic, 12 CLI, 151 other frontend).
+Formatting, Clippy with warnings denied and release build passed locally for
+this revision; earlier cross-platform checks do not cover these edits.
+
+The first whole-owner Result dataflow pass diagnoses unused bindings/parameters,
+overwrite, scope exit, return/propagation exits, branch joins, loop exits,
+wildcard dropping and transfers through whole aggregates. This pass is not yet
+fully conformant: it collapses aggregate payload obligations to one owner bit.
+Partial field updates, mixed empty/nonempty nested payloads and collection
+iteration therefore need more precise projection tracking. These are genuine
+completion blockers, not new language restrictions. Do not treat a conservative
+T003 rejection in these cases as a normative language rule.
+
+`cretes-front analyze --target-bits 64 --module app path.cretes --entry app`
+provides experimental semantic inspection. Repeat `--module identity path` for
+an explicit module map; omit `--entry` for library analysis. JSON diagnostics
+are optional. Exit codes are 0 (implemented checks pass), 1 (source diagnostics),
+2 (usage/I/O failure). Exit 0 does not certify full validity or move/loan safety.
+No implicit library, package manifest or filesystem search is introduced.
+
+All 14 unchanged canonical examples now pass the implemented semantic checks.
+Nine are self-contained. Five use explicit test-only library contracts in
+`tests/semantic.rs`; the collection signatures are concrete for those examples,
+not generic standard-library implementations. Divergent contract bodies exist
+only to supply test signatures. They do not implement library behavior.
+
+### Measured baseline
+
+`cargo bench --bench semantic --locked`, Rust 1.85.1, release, Linux,
+2026-10-09. One source, 46,280 bytes, 500 distinct functions, seven samples.
+End-to-end `analyze` includes parsing, type checking, constants and dataflow.
+
+| Target width | Minimum | Median | Maximum |
+| --- | ---: | ---: | ---: |
+| 32 | 6,689 us | 8,985 us | 18,162 us |
+| 64 | 5,931 us | 6,673 us | 7,293 us |
+
+These are local observations, not portable performance promises. Memory use was
+not measured. The fixture is reproducible in `benchmarks/semantic.rs`.
+
+### Review findings still open
+
+- Replace whole-owner Result bits with projection-aware obligations, including
+  collection iteration and early loop exits. Keep positive conformance tests for
+  empty nested payloads so conservative false rejections cannot hide regressions.
+- Cumulative input and retained AST budgets are now implemented (see below).
+  Continue auditing pattern-matrix/state-copy amplification and peak working
+  memory. Do not claim a completed security review.
+- Finish the documented handoff to the separate ownership/loan stage and verify
+  that no consumer mistakes these partial checks for a full safety certificate.
+- Complete the final requirements traceability/diff review and obtain checks on
+  the eventual final revision, then reconcile accepted Phase 2/3 decisions.
+
+The three Phase 5 completion gates remain unchecked.
+
+## Session resource review — 2026-10-09
+
+The semantic API now preflights module count and cumulative source/identity bytes
+before allocating the sorted module index or parsing. Defaults are 4096 modules,
+64 MiB total input and 1,000,000 retained AST nodes shared across the session.
+Each module also retains the existing per-file limits. Checked arithmetic rejects
+overflow. Callers may configure these limits; caller-owned source snapshots are
+outside the analyzer allocation boundary. The CLI bounds each read by the lesser
+of the per-file allowance and remaining session allowance, with one detection
+byte, and rejects excess before adding a source snapshot.
+
+Two boundary regressions verify exact-budget acceptance, one-byte excess,
+module-count preflight, and a node budget shared across modules. Local suite:
+315 tests (152 semantic, 12 CLI, 151 other frontend), all passing. Formatting and
+Clippy pass. This closes the missing cumulative input/AST budget finding; it does
+not close the aggregate Result precision or complete semantic security review.
+The limits bound structural input, not exact process RSS. No peak-memory claim
+is made, and large user-configured limits remain the caller's responsibility.
+
+## Pattern-matrix resource fix — 2026-10-13
+
+A focused security review found that matrix specialization cloned recursive
+pattern subtrees and charged recursive calls without charging expanded rows.
+A wide boolean product covered by wildcards also needlessly enumerated boolean
+combinations. The fix shares immutable pattern nodes with `Rc`, charges matrix
+cell and constructor-storage work before expansion using saturating arithmetic,
+and stops immediately when an all-wildcard row covers the candidate product.
+Exhaustion reports R001 rather than a false coverage diagnostic.
+
+Three regressions cover a 24-column decision list under restricted/default fuel,
+a 64-column wildcard product, and nested enum/Option/tuple coverage (both valid
+and non-exhaustive). Local Rust 1.85.1 Linux validation: 318 tests pass (155 semantic,
+12 CLI and 151 other frontend), formatting, Clippy with warnings denied, and
+release build pass. Remote CI must be verified on the published revision.
+
+Repeated existing 500-function benchmark, 46,280 source bytes, seven release
+samples per width, on 2026-10-13: 32-bit target min/median/max 4,360/4,479/4,913 us;
+64-bit target 4,205/4,322/5,983 us. These local observations do not measure peak
+memory or prove a cross-machine improvement. The fixture does not stress matches;
+the dedicated regressions exercise the matrix fix.
+
+This closes the identified pattern-subtree duplication and uncharged matrix
+expansion findings, not the entire security review. Projection-aware Result
+obligations, iteration flow, safety-stage handoff and final traceability remain
+open. Phase 2 has been accepted and synchronized; Phase 3's published final-comment
+period and formal Phase 4 reconciliation are recorded in docs/PHASE4.md. Maintainer
+approval to continue completion does not establish that unfinished code passes
+its completion gates. No Phase 6 implementation is included.
+
+## Result shape and owned-iteration checkpoint — 2026-10-13
+
+Result obligations now retain actual aggregate shape: tuple positions, record
+fields, constructor payloads and known sequence elements. Unknown parameter and
+call-result shapes are expanded using their types. Empty `Option::None()` payloads
+no longer inherit obligations from unrelated fields. Branch joins preserve
+possible obligations; field/index assignments check the replaced projection and
+evaluate the place before the RHS. Dynamic indexes use conservative weak updates.
+
+Owned iteration transfers the container into the loop, initializes each iteration's
+element obligation, and checks fallthrough, continue, break, return and propagation.
+Exhaustive iteration can discharge every element. Early exits diagnose potentially
+unvisited Results; borrowed iteration leaves ownership with the original value.
+Earlier call arguments and aggregate elements remain tracked as temporaries while
+later expressions execute, so propagation cannot silently drop them.
+
+Twelve new regression tests cover these positive and negative cases. Local Rust 1.85.1
+Linux validation: 330 tests (167 semantic, 12 CLI, 151 other frontend) pass; format,
+Clippy with warnings denied and release build pass. Published-revision cross-platform
+CI must be checked separately. This checkpoint supersedes the two concrete false
+rejections recorded in issue #5; it is not a Phase 5 completion certificate.
+
+Recursive container shapes widen to an unknown may-own obligation at 64 projection
+levels, bounding loop-domain growth without changing source nesting limits. This
+can conservatively lose deep empty-payload precision. While conditions are
+reevaluated at abstract back edges, including propagation and argument transfers.
+
+Remaining review: conservative loop/cardinality precision; reference mutation and the ownership/loan-stage contract; remaining state-copy amplification; final traceability and integration review. No full
+move/loan checker, backend or runtime is introduced. Phase 3's announced review
+period and formal Phase 4/5 reconciliation remain pending.
+
+
+## Short-circuit Result flow review — 2026-10-14
+
+The Result-obligation pass now distinguishes a skipped, guaranteed or conditional
+right operand of `&&` and `||`. A literal left operand no longer introduces an
+impossible skipped path or visits an unreachable propagation. Both operands
+remain subject to the separate type checker. Unknown conditions retain both
+possible obligation states. No syntax or language decision changed.
+
+Four regression tests cover skipped propagation with another live owner,
+guaranteed consumption for both operators, conditional consumption for both
+operators, and reachable propagation with another unhandled owner. A guaranteed
+consumption case reproduced T003 before the fix and passes afterward.
+
+Local Rust 1.85.1/Linux: 335 tests pass (172 semantic, 12 CLI, 151 frontend),
+formatting, Clippy with warnings denied and release build pass. Final-head remote
+CI evidence belongs in the implementation PR. This focused correction does not
+close cardinality, indirect mutation or the broader resource/security review.
+
+
+## Inferred-reference validation review — 2026-10-14
+
+The candidate excludes reference-to-reference types regardless of whether their
+type was written explicitly or inferred. Previously only type-syntax resolution
+checked this rule. `let rr = &mut r` could infer an excluded type and allow an
+indirect reassignment of a reference binding to bypass direct return-provenance
+tracking. This was reproduced as an incorrectly successful semantic result.
+
+The common interned-type validation pass now rejects inferred nested references
+with B002. Three regression tests cover shared/exclusive nested inference,
+indirect mutation before a `from` return, and valid shared/exclusive reborrows of
+the actual referent. Two negative tests failed before the fix; all pass afterward.
+This enforces the existing reference-storage and LANG-PARAM-001 restrictions, not a new loan checker.
+
+Local Rust 1.85.1/Linux: 338 tests pass (175 semantic, 12 CLI, 151 frontend),
+format, Clippy -D warnings and release build pass. Final-head platform CI must be
+recorded in the PR. General indirect Result mutation, alias/loan validity,
+cardinality precision and broader resource-amplification review remain open.
+
+
+## Literal iteration and indirect overwrite review — 2026-10-16
+
+The Result-obligation pass now visits literal sequence elements in source order
+with their exact cardinality. It preserves break/continue/return exits without
+inventing an empty iteration path for `[1]`, and checks only the obligations in
+unvisited elements on early exits. Nonliteral iterables still use the conservative
+fixed point. Six new regression tests cover guaranteed execution, grouped literals,
+ordered payloads, break/continue/propagation, nested iteration work limits, and
+indirect assignments. The guaranteed-execution regression failed before the fix.
+Repeated literal-body visits consume the shared work budget and report R001 on
+exhaustion; this is static analysis, not execution or lowering.
+
+A second reproduced gap allowed `*slot = Option::None()` for
+`slot: &mut Option[Result[i64,text]]` without a diagnostic. The unresolved-place
+check now considers the destination type as well as the replacement value, so an
+empty replacement cannot bypass the existing safety-stage boundary. The negative
+regression failed before this fix. Ordinary non-Result reference writes and known
+empty owned storage remain accepted. This is deliberately conservative: precise
+alias-aware Result updates remain incomplete and valid indirect writes may be
+rejected. It is not a new normative language restriction or a complete borrow checker.
+
+Rust 1.85.1/Linux: 344 tests pass (181 semantic, 12 CLI, 151 other frontend),
+formatting and Clippy with warnings denied pass, and the release build passes.
+The existing 500-function/46,280-byte benchmark was rerun with seven samples per
+target on 2026-10-16. Min/median/max in microseconds: 32-bit target
+4,395/4,508/5,372; 64-bit target 4,383/4,599/4,784. These local measurements do not
+measure peak memory or establish cross-machine performance. Published-head CI
+must be verified independently.
+
+Remaining completion blockers: nonliteral cardinality/dynamic-index precision,
+alias-aware Result mutation and ownership-stage integration, broader state-copy
+and peak-working-memory review, final integrated traceability/diff review, and
+formal reconciliation after Phase 3 acceptance. Closing spec#8 with procedural
+deferral on October 15 did not accept the language candidate; rfcs#2 still tracks
+the final-comment decision, no earlier than October 20 00:00 UTC. Phase 5 remains
+in progress. No Phase 6, IR, backend or runtime is implemented.
+
+## Historical branch reconciliation — 2026-10-17
+
+PR #7 predates the integration checkpoints merged through #15. Its stale
+branch removed cumulative session limits and regression coverage. Reconciliation
+restores the current main implementation, tests and report before merging that
+history. This is branch repair, not new semantic functionality or Phase 5 closure.
+The integration, security and accepted-revision gates above remain open.

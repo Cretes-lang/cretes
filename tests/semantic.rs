@@ -718,3 +718,566 @@ fn reference_return_tracks_borrowed_match_payload() {
 fn reference_return_tracks_iterator_reference() {
     good("fn f(x:&Seq[i64])->&i64 from x{for v in x{return v;}loop{}}");
 }
+
+#[test]
+fn result_binding_requires_handling() {
+    bad("fn f()->(){let r:Result[i64,text]=Result::Ok(1);}", "T003");
+}
+#[test]
+fn result_parameter_requires_handling() {
+    bad("fn f(r:Result[i64,text])->(){}", "T003");
+}
+#[test]
+fn result_explicit_discard_discharges_obligation() {
+    good("fn f(r:Result[i64,text])->(){discard(r,\"intentional\");}");
+}
+#[test]
+fn result_return_transfers_obligation() {
+    good("fn f(r:Result[i64,text])->Result[i64,text]{return r;}");
+}
+#[test]
+fn result_match_handles_outer_obligation() {
+    good("fn f(r:Result[i64,text])->(){match r{Result::Ok(v)=>{discard(v,\"used\");}Result::Err(e)=>{discard(e,\"logged\");}}}");
+}
+#[test]
+fn result_wildcard_cannot_silently_drop() {
+    bad("fn f(r:Result[i64,text])->(){match r{_=>{}}}", "T003");
+}
+#[test]
+fn result_binding_pattern_transfers_obligation() {
+    bad("fn f(r:Result[i64,text])->(){match r{x=>{}}}", "T003");
+    good("fn f(r:Result[i64,text])->(){match r{x=>{discard(x,\"explicit\");}}}");
+}
+#[test]
+fn result_branch_requires_every_normal_path() {
+    bad(
+        "fn f(r:Result[i64,text],b:bool)->(){if b{discard(r,\"explicit\");}}",
+        "T003",
+    );
+    good("fn f(r:Result[i64,text],b:bool)->(){if b{discard(r,\"yes\");}else{discard(r,\"no\");}}");
+}
+#[test]
+fn result_overwrite_is_not_handling() {
+    bad(
+        "fn f()->(){var r:Result[i64,text]=Result::Ok(1);r=Result::Ok(2);discard(r,\"explicit\");}",
+        "T003",
+    );
+}
+#[test]
+fn result_whole_aggregate_transfer_keeps_obligation() {
+    bad("fn f(r:Result[i64,text])->(){let tuple=(r,);}", "T003");
+    good("fn f(r:Result[i64,text])->(){let tuple=(r,);discard(tuple,\"explicit\");}");
+}
+#[test]
+fn result_propagation_checks_other_pending_owners() {
+    bad("fn f(a:Result[i64,text],b:Result[i64,text])->Result[i64,text]{let x=a?;discard(b,\"later\");return Result::Ok(x);}", "T003");
+    good("fn f(a:Result[i64,text])->Result[i64,text]{let x=a?;return Result::Ok(x);}");
+}
+#[test]
+fn result_local_scope_exit_checks_obligation() {
+    bad(
+        "fn f()->(){{let r:Result[i64,text]=Result::Ok(1);}}",
+        "T003",
+    );
+}
+#[test]
+fn result_loop_break_checks_local_obligation() {
+    bad(
+        "fn f()->(){loop{let r:Result[i64,text]=Result::Ok(1);break;}}",
+        "T003",
+    );
+    good("fn f(r:Result[i64,text])->(){loop{discard(r,\"explicit\");break;}}");
+}
+#[test]
+fn result_empty_container_does_not_invent_obligation() {
+    good(
+        "fn f()->(){let x:Option[Result[i64,text]]=Option::None();let y:Seq[Result[i64,text]]=[];}",
+    );
+}
+#[test]
+fn result_nested_wildcard_rejected() {
+    bad("fn f(r:Result[Result[i64,text],text])->(){match r{Result::Ok(_)=>{}Result::Err(e)=>{discard(e,\"logged\");}}}", "T003");
+}
+#[test]
+fn result_named_call_transfers_to_callee() {
+    good("fn consume(r:Result[i64,text])->(){discard(r,\"explicit\");} fn f(r:Result[i64,text])->(){consume(r);}");
+}
+
+macro_rules! canonical_semantic {
+    ($name:ident,$path:literal,$identity:literal) => {
+        #[test]
+        fn $name() {
+            let r = modules(&[($identity, include_str!($path))]);
+            assert!(r.is_valid(), "{:?}", r.diagnostics);
+        }
+    };
+}
+canonical_semantic!(
+    canonical_variables,
+    "../examples/02-variables.cretes",
+    "example"
+);
+canonical_semantic!(
+    canonical_functions,
+    "../examples/03-functions.cretes",
+    "example"
+);
+canonical_semantic!(
+    canonical_conditionals,
+    "../examples/04-conditionals.cretes",
+    "example"
+);
+canonical_semantic!(canonical_loops, "../examples/05-loops.cretes", "example");
+canonical_semantic!(
+    canonical_user_types,
+    "../examples/07-user-types.cretes",
+    "example"
+);
+canonical_semantic!(canonical_errors, "../examples/08-errors.cretes", "example");
+canonical_semantic!(
+    canonical_modules,
+    "../examples/09-modules.cretes",
+    "demo::math"
+);
+canonical_semantic!(
+    canonical_borrowing,
+    "../examples/10-borrowing.cretes",
+    "example"
+);
+#[test]
+fn semantic_diagnostic_messages_are_bounded() {
+    let name = "x".repeat(10000);
+    let source = format!("fn f()->(){{discard({name},\"test\");}}");
+    let result = modules(&[("test", &source)]);
+    assert!(!result.is_valid());
+    assert!(result.diagnostics.iter().all(|d| d.message.len() <= 2051));
+}
+#[test]
+fn obligations_respect_diagnostic_cap() {
+    let mut source = "fn f()->(){".to_string();
+    for i in 0..250 {
+        source.push_str(&format!("let r{i}:Result[i64,text]=Result::Ok(1);"));
+    }
+    source.push('}');
+    let result = modules(&[("test", &source)]);
+    assert!(!result.is_valid());
+    assert!(result.diagnostics.len() <= 100);
+}
+
+// Explicit test-only signatures for the examples' conceptual library APIs.
+// Divergent bodies make no claim to implement these APIs or execute their behavior.
+fn canonical_with_contracts(source: &str) {
+    let r=modules(&[
+        ("example",source),
+        ("std::io","pub enum Error{Failure,} pub fn println(value:text)->Result[(),Error]{loop{}}"),
+        ("std::fs","pub enum Error{Failure,} pub fn read_bytes(path:text)->Result[Bytes,Error]{loop{}} pub fn write_bytes(path:text,data:&Bytes)->Result[(),Error]{loop{}}"),
+        ("std::bytes","pub fn len(data:&Bytes)->usize{loop{}}"),
+        ("std::seq","pub fn push(values:&mut Seq[i64],value:i64)->(){loop{}}"),
+        ("std::map","pub fn empty()->Map[text,i64]{loop{}}"),
+        ("std::set","pub fn empty()->Set[i64]{loop{}}"),
+    ]);
+    assert!(r.is_valid(), "{:?}", r.diagnostics);
+}
+#[test]
+fn canonical_hello_with_explicit_contracts() {
+    canonical_with_contracts(include_str!("../examples/01-hello-world.cretes"));
+}
+#[test]
+fn canonical_collections_with_concrete_contracts() {
+    canonical_with_contracts(include_str!("../examples/06-collections.cretes"));
+}
+#[test]
+fn canonical_automation_with_explicit_contracts() {
+    canonical_with_contracts(include_str!("../examples/11-automation.cretes"));
+}
+#[test]
+fn canonical_networking_with_explicit_contracts() {
+    canonical_with_contracts(include_str!("../examples/12-packet-validation.cretes"));
+}
+canonical_semantic!(
+    canonical_numeric_preprocessing,
+    "../examples/13-numeric-preprocessing.cretes",
+    "example"
+);
+#[test]
+fn canonical_defensive_bytes_with_explicit_contracts() {
+    canonical_with_contracts(include_str!("../examples/14-defensive-bytes.cretes"));
+}
+
+#[test]
+fn session_input_budget_rejects_before_parsing() {
+    let mut sm = SourceManager::default();
+    let a = sm.add("a", b"fn a()->(){}".as_slice());
+    let b = sm.add("b", b"fn b()->(){}".as_slice());
+    let inputs = [
+        ModuleInput {
+            identity: "a",
+            source: sm.get(a).unwrap(),
+        },
+        ModuleInput {
+            identity: "b",
+            source: sm.get(b).unwrap(),
+        },
+    ];
+    let size = inputs
+        .iter()
+        .map(|i| i.identity.len() + i.source.bytes().len())
+        .sum();
+    let exact = SemanticOptions {
+        session_source_bytes: size,
+        ..Default::default()
+    };
+    assert!(analyze(&inputs, exact).is_valid());
+    let r = analyze(
+        &inputs,
+        SemanticOptions {
+            session_source_bytes: size - 1,
+            ..exact
+        },
+    );
+    assert!(r.modules.is_empty());
+    assert_eq!(r.diagnostics[0].code, "R001");
+    let r = analyze(
+        &inputs,
+        SemanticOptions {
+            modules: 1,
+            ..exact
+        },
+    );
+    assert!(r.modules.is_empty());
+    assert_eq!(r.diagnostics[0].code, "R001");
+}
+
+#[test]
+fn session_node_budget_is_shared_between_modules() {
+    let mut sm = SourceManager::default();
+    let a = sm.add("a", b"fn a()->(){}".as_slice());
+    let b = sm.add("b", b"fn b()->(){}".as_slice());
+    let inputs = [
+        ModuleInput {
+            identity: "a",
+            source: sm.get(a).unwrap(),
+        },
+        ModuleInput {
+            identity: "b",
+            source: sm.get(b).unwrap(),
+        },
+    ];
+    let normal = analyze(&inputs, SemanticOptions::default());
+    let count: usize = normal.modules.iter().map(|m| m.ast.nodes.len()).sum();
+    assert!(analyze(
+        &inputs,
+        SemanticOptions {
+            session_nodes: count,
+            ..Default::default()
+        }
+    )
+    .is_valid());
+    let r = analyze(
+        &inputs,
+        SemanticOptions {
+            session_nodes: count / 2,
+            ..Default::default()
+        },
+    );
+    assert!(!r.is_valid());
+    assert!(r.diagnostics.iter().any(|d| d.code == "R001"));
+    assert!(r.modules.iter().map(|m| m.ast.nodes.len()).sum::<usize>() <= count / 2);
+}
+
+#[test]
+fn pattern_matrix_width_is_charged_before_expansion() {
+    let width = 24;
+    let fields = vec!["bool"; width].join(",");
+    let mut arms = String::new();
+    for i in 0..width {
+        let mut pattern = vec!["_"; width];
+        pattern[..i].fill("false");
+        pattern[i] = "true";
+        arms.push_str(&format!("({})=>{{}}", pattern.join(",")));
+    }
+    arms.push_str(&format!("({})=>{{}}", vec!["false"; width].join(",")));
+    let source = format!("fn f(x:({fields}))->(){{match x{{{arms}}}}}");
+    let mut sm = SourceManager::default();
+    let id = sm.add("test", source.as_bytes());
+    let inputs = [ModuleInput {
+        identity: "test",
+        source: sm.get(id).unwrap(),
+    }];
+    let limited = analyze(
+        &inputs,
+        SemanticOptions {
+            work: 4000,
+            ..SemanticOptions::default()
+        },
+    );
+    assert!(
+        limited.diagnostics.iter().any(|d| d.code == "R001"),
+        "{:?}",
+        limited.diagnostics
+    );
+    assert!(
+        !limited.diagnostics.iter().any(|d| d.code == "T002"),
+        "budget exhaustion must not become a coverage error"
+    );
+    let normal = analyze(&inputs, SemanticOptions::default());
+    assert!(normal.is_valid(), "{:?}", normal.diagnostics);
+}
+
+#[test]
+fn nested_pattern_sharing_preserves_coverage() {
+    good("enum E{A(Option[(bool,bool)]),B,} fn f(x:E)->(){match x{E::A(Option::Some((true,_)))=>{} E::A(Option::Some((false,_)))=>{} E::A(Option::None())=>{} E::B()=>{}}}");
+    bad("enum E{A(Option[(bool,bool)]),B,} fn f(x:E)->(){match x{E::A(Option::Some((true,_)))=>{} E::A(Option::None())=>{} E::B()=>{}}}", "T002");
+}
+
+#[test]
+fn wide_wildcard_product_does_not_enumerate_boolean_combinations() {
+    let fields = vec!["bool"; 64].join(",");
+    let pattern = vec!["_"; 64].join(",");
+    good(&format!(
+        "fn f(x:({fields}))->(){{match x{{({pattern})=>{{}}}}}}"
+    ));
+}
+
+#[test]
+fn result_shape_preserves_empty_tuple_component() {
+    good("fn f(r:Result[i64,text])->(){let p:(Result[i64,text],Option[Result[i64,text]])=(r,Option::None());match p{(handled,_)=>{discard(handled,\"handled\");}}}");
+    bad("fn f(a:Result[i64,text],b:Result[i64,text])->(){let p=(a,Option::Some(b));match p{(handled,_)=>{discard(handled,\"handled\");}}}", "T003");
+}
+
+#[test]
+fn result_shape_preserves_known_constructor_payloads() {
+    good("fn f(r:Result[i64,text])->(){let p:Option[(Result[i64,text],Option[Result[i64,text]])]=Option::Some((r,Option::None()));match p{Option::Some((handled,_))=>{discard(handled,\"handled\");}Option::None()=>{}}}");
+    bad("fn f(p:Option[(Result[i64,text],Option[Result[i64,text]])])->(){match p{Option::Some((handled,_))=>{discard(handled,\"handled\");}Option::None()=>{}}}", "T003");
+}
+
+#[test]
+fn result_owned_iteration_handles_each_element() {
+    good("fn f(items:Seq[Result[i64,text]])->(){for item in items{discard(item,\"handled\");}}");
+    good("fn f(items:Seq[Result[i64,text]])->(){for item in items{discard(item,\"handled\");continue;}}");
+    bad(
+        "fn f(items:Seq[Result[i64,text]])->(){for item in items{continue;}}",
+        "T003",
+    );
+}
+
+#[test]
+fn result_owned_iteration_early_exits_check_remaining_elements() {
+    bad("fn f(items:Seq[Result[i64,text]])->(){for item in items{discard(item,\"handled\");break;}}", "T003");
+    bad("fn f(items:Seq[Result[i64,text]])->(){for item in items{discard(item,\"handled\");return;}}", "T003");
+    bad("fn f(items:Seq[Result[i64,text]])->Result[(),text]{for item in items{let value=item?;discard(value,\"handled\");}return Result::Ok(());}", "T003");
+}
+
+#[test]
+fn result_borrowed_iteration_does_not_consume_owner() {
+    bad("fn f(items:Seq[Result[i64,text]])->(){for item in &items{discard(item,\"inspected reference\");}}", "T003");
+    good("fn f(items:Seq[Result[i64,text]])->(){for item in &items{discard(item,\"inspected reference\");}discard(items,\"explicit owner handling\");}");
+}
+
+#[test]
+fn result_record_field_update_preserves_other_obligations() {
+    good("struct Pair{first:Result[i64,text],second:Option[Result[i64,text]],} fn f(r:Result[i64,text],next:Result[i64,text])->(){var p=new Pair{first:r,second:Option::None()};p.second=Option::Some(next);discard(p,\"handled both\");}");
+    bad("struct Pair{first:Result[i64,text],second:Option[Result[i64,text]],} fn f(r:Result[i64,text])->(){var p=new Pair{first:r,second:Option::None()};p.second=Option::None();}", "T003");
+    bad("struct Pair{first:Result[i64,text],second:Option[Result[i64,text]],} fn f(r:Result[i64,text])->(){var p=new Pair{first:r,second:Option::None()};p.first=Result::Ok(2);discard(p,\"handled replacement\");}", "T003");
+}
+
+#[test]
+fn result_shape_join_retains_possible_payload() {
+    bad("fn f(r:Result[i64,text],b:bool)->(){var p:(Option[Result[i64,text]],)=(Option::None(),);if b{p=(Option::Some(r),);}else{discard(r,\"unused path\");}match p{(_,)=>{}}}", "T003");
+    good("fn f(r:Result[i64,text],b:bool)->(){var p:(Option[Result[i64,text]],)=(Option::None(),);if b{p=(Option::Some(r),);}else{discard(r,\"unused path\");}discard(p,\"handled either path\");}");
+}
+
+#[test]
+fn result_iteration_nested_break_does_not_drop_outer_remainder() {
+    good("fn f(items:Seq[Result[i64,text]])->(){for item in items{loop{break;}discard(item,\"handled\");}}");
+    bad("fn f(items:Seq[Result[i64,text]])->(){for item in items{if true{continue;}discard(item,\"unreachable\");}}", "T003");
+}
+
+#[test]
+fn result_known_sequence_element_updates_are_distinct() {
+    good("fn f(r:Result[i64,text])->(){var xs:Seq[Option[Result[i64,text]]]=[Option::None(),Option::Some(r)];xs[0]=Option::None();discard(xs,\"handled\");}");
+    bad("fn f(r:Result[i64,text])->(){var xs:Seq[Option[Result[i64,text]]]=[Option::None(),Option::Some(r)];xs[1]=Option::None();discard(xs,\"too late\");}", "T003");
+}
+
+#[test]
+fn result_temporaries_survive_until_enclosing_expression_completes() {
+    bad("fn take(a:Result[i64,text],b:i64)->(){discard(a,\"handled\");} fn f(a:Result[i64,text],b:Result[i64,text])->Result[(),text]{take(a,b?);return Result::Ok(());}", "T003");
+    bad("fn f(a:Result[i64,text],b:Result[i64,text])->Result[(),text]{let pair=(a,b?);discard(pair,\"handled\");return Result::Ok(());}", "T003");
+    bad("struct Pair{first:Result[i64,text],second:i64,} fn f(a:Result[i64,text],b:Result[i64,text])->Result[(),text]{let pair=new Pair{first:a,second:b?};discard(pair,\"handled\");return Result::Ok(());}", "T003");
+    good("fn take(a:Result[i64,text],b:i64)->(){discard(a,\"handled\");} fn f(a:Result[i64,text])->(){take(a,2);}");
+    good("fn f(b:Result[i64,text])->Result[(),text]{let pair=(1,b?);discard(pair,\"handled\");return Result::Ok(());}");
+}
+
+#[test]
+fn result_recursive_container_loop_shapes_are_bounded() {
+    good("enum Chain{End(Result[i64,text]),More(Seq[Chain]),} fn f(r:Result[i64,text])->(){var chain=Chain::End(r);loop{chain=Chain::More([chain]);}}");
+    bad("enum Chain{End(Result[i64,text]),More(Seq[Chain]),} fn f(r:Result[i64,text],b:bool)->(){var chain=Chain::End(r);while b{chain=Chain::More([chain]);}}", "T003");
+}
+
+#[test]
+fn result_while_condition_rechecks_back_edge_obligations() {
+    good("fn handle(r:Result[i64,text])->bool{discard(r,\"handled\");return true;} fn f(r:Result[i64,text])->(){var current=r;while handle(current){current=Result::Ok(1);}}");
+    bad("fn f(r:Result[bool,text])->Result[(),text]{var condition=r;var pending:Option[Result[i64,text]]=Option::None();while condition?{pending=Option::Some(Result::Ok(1));condition=Result::Ok(true);}discard(pending,\"handled after loop\");return Result::Ok(());}", "T003");
+}
+
+#[test]
+fn semantic_handoff_keeps_target_and_session_identity() {
+    let mut sm = SourceManager::default();
+    let library = sm.add(
+        "library.cretes",
+        b"pub fn identity(x:&i64)->&i64 from x{return x;}".as_slice(),
+    );
+    let application = sm.add(
+        "application.cretes",
+        b"import library; fn use_it(x:&i64)->&i64 from x{return library::identity(x);}".as_slice(),
+    );
+    // Deliberately oppose input order and source ID order to semantic module order.
+    let inputs = [
+        ModuleInput {
+            identity: "library",
+            source: sm.get(library).unwrap(),
+        },
+        ModuleInput {
+            identity: "application",
+            source: sm.get(application).unwrap(),
+        },
+    ];
+    for width in [32, 64] {
+        let r = analyze(
+            &inputs,
+            SemanticOptions {
+                target_pointer_bits: width,
+                ..SemanticOptions::default()
+            },
+        );
+        assert!(r.is_valid(), "{:?}", r.diagnostics);
+        assert_eq!(r.target_pointer_bits, width);
+        assert_eq!(r.modules[0].identity, "application");
+        assert_eq!(r.modules[1].identity, "library");
+        assert_eq!(r.modules[0].imports["library"].0, 1);
+        for (index, module) in r.modules.iter().enumerate() {
+            let source_id = if index == 0 { application } else { library };
+            for node in &module.ast.nodes {
+                assert_eq!(node.span.source, source_id);
+                assert!(sm.get(source_id).unwrap().slice(node.span).is_some());
+            }
+            for (node, ty) in &module.node_types {
+                assert!(*node < module.ast.nodes.len());
+                assert!(r.types.get(*ty).is_some());
+            }
+            for (node, symbol) in &module.resolutions {
+                assert!(*node < module.ast.nodes.len());
+                let declaration = &r.symbols[symbol.0];
+                assert!(declaration.node.0 < r.modules[declaration.module.0].ast.nodes.len());
+            }
+        }
+        for signature in r.signatures.values() {
+            assert_eq!(signature.from, Some(0));
+            assert!(matches!(
+                r.types.get(signature.parameters[0]),
+                Some(Type::Reference { mutable: false, .. })
+            ));
+            assert_eq!(signature.result, signature.parameters[0]);
+        }
+    }
+}
+
+#[test]
+fn result_short_circuit_skips_unreachable_obligations() {
+    good("fn f(r:Result[bool,text],other:Result[i64,text])->Result[(),text]{let a=false && r?;let b=true || r?;discard(r,\"handled\");discard(other,\"handled\");return Result::Ok(());}");
+}
+#[test]
+fn result_short_circuit_guaranteed_rhs_transfers_obligation() {
+    good("fn take(r:Result[i64,text])->bool{discard(r,\"handled\");return true;} fn f(r:Result[i64,text])->(){let x=true && take(r);}");
+    good("fn take(r:Result[i64,text])->bool{discard(r,\"handled\");return true;} fn f(r:Result[i64,text])->(){let x=false || take(r);}");
+}
+#[test]
+fn result_short_circuit_unknown_rhs_preserves_skip_path() {
+    bad("fn take(r:Result[i64,text])->bool{discard(r,\"handled\");return true;} fn f(flag:bool,r:Result[i64,text])->(){let x=flag && take(r);}", "T003");
+    bad("fn take(r:Result[i64,text])->bool{discard(r,\"handled\");return true;} fn f(flag:bool,r:Result[i64,text])->(){let x=flag || take(r);}", "T003");
+}
+#[test]
+fn result_short_circuit_reachable_propagation_checks_other_owners() {
+    bad("fn f(r:Result[bool,text],other:Result[i64,text])->Result[(),text]{let x=true && r?;discard(other,\"handled\");return Result::Ok(());}", "T003");
+}
+
+#[test]
+fn inferred_reference_to_reference_is_rejected() {
+    bad("fn f(x:&i64)->(){let rr=&x;}", "B002");
+    bad("fn f(x:&i64)->(){var r=x;let rr=&mut r;}", "B002");
+}
+#[test]
+fn inferred_reference_cannot_hide_return_origin_mutation() {
+    bad(
+        "fn f(x:&i64,y:&i64)->&i64 from x{var r=x;let rr=&mut r;*rr=y;return r;}",
+        "B002",
+    );
+}
+#[test]
+fn inferred_reborrow_of_referent_remains_valid() {
+    good("fn f(x:&mut i64)->&i64 from x{let r=&*x;return r;}");
+    good("fn f(x:&mut i64)->&mut i64 from x{let r=&mut *x;return r;}");
+}
+
+#[test]
+fn result_literal_iteration_has_exact_cardinality() {
+    good("fn f(r:Result[i64,text])->(){for x in [1]{discard(r,\"handled on guaranteed iteration\");}}");
+    good("fn f(r:Result[i64,text])->(){for item in [r]{discard(item,\"handled\");break;}}");
+    bad("fn f(a:Result[i64,text],b:Result[i64,text])->(){for item in [a,b]{discard(item,\"handled\");break;}}", "T003");
+}
+#[test]
+fn result_literal_iteration_preserves_element_order() {
+    good("fn f(r:Result[i64,text])->Result[(),text]{for item in [Option::Some(r),Option::None()]{match item{Option::Some(value)=>{let x=value?;}Option::None()=>{}}}return Result::Ok(());}");
+    bad("fn f(r:Result[i64,text])->Result[(),text]{for item in [Option::None(),Option::Some(r)]{return Result::Ok(());}return Result::Ok(());}", "T003");
+}
+
+#[test]
+fn result_literal_iteration_continue_and_break_paths() {
+    good("fn f(r:Result[i64,text])->(){for x in ([1]){discard(r,\"handled\");continue;}}");
+    bad(
+        "fn f(r:Result[i64,text],b:bool)->(){for x in [1]{if b{break;}discard(r,\"handled\");}}",
+        "T003",
+    );
+    good("fn f(a:Result[i64,text],b:Result[i64,text])->(){for item in [a,b]{loop{break;}discard(item,\"handled\");continue;}}");
+}
+
+#[test]
+fn result_literal_iteration_repeated_body_work_is_bounded() {
+    let mut source = String::from("fn f()->(){");
+    for _ in 0..12 {
+        source.push_str("for x in [1,2]{");
+    }
+    source.push_str("discard(1,\"bounded\");");
+    source.push_str(&"}".repeat(13));
+    let mut sm = SourceManager::default();
+    let id = sm.add("test", source.as_bytes());
+    let r = analyze(
+        &[ModuleInput {
+            identity: "test",
+            source: sm.get(id).unwrap(),
+        }],
+        SemanticOptions {
+            work: 10000,
+            ..SemanticOptions::default()
+        },
+    );
+    assert!(
+        r.diagnostics.iter().any(|d| d.code == "R001"),
+        "{:?}",
+        r.diagnostics
+    );
+}
+
+#[test]
+fn result_indirect_empty_write_requires_obligation_tracking() {
+    bad(
+        "fn f(slot:&mut Option[Result[i64,text]])->(){*slot=Option::None();}",
+        "T003",
+    );
+    bad("struct Holder{item:Option[Result[i64,text]],} fn f(slot:&mut Holder)->(){(*slot).item=Option::None();}", "T003");
+}
+#[test]
+fn result_indirect_non_result_write_remains_valid() {
+    good("fn f(slot:&mut i64)->(){*slot=2;}");
+    good("fn f()->(){var slot:Option[Result[i64,text]]=Option::None();slot=Option::None();}");
+}

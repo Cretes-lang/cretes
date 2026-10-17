@@ -2,7 +2,7 @@
 
 The Cretes Programming Language — automation, networking, AI/ML applications and cybersecurity.
 
-This repository contains the **provisional Phase 4 syntax frontend** for `.cretes` sources. It implements the published Phase 3 candidate, not an accepted or stable language release. Phase 2/3 RFC acceptance remains a separate governance gate. The `feature/phase5-semantics` branch adds an incomplete experimental semantic analyzer. See [the Phase 5 checkpoint](docs/PHASE5.md) for verified coverage and remaining gates. There is no program execution, completed safety checker, IR, backend or runtime.
+This repository contains the **provisional Phase 4 syntax frontend** for `.cretes` sources. It implements the published Phase 3 candidate, not an accepted or stable language release. Phase 2 architecture is accepted; Phase 3 final acceptance remains pending its announced review period. The `main` branch also contains the provisional Phase 5 semantic analyzer. See [the Phase 5 checkpoint](docs/PHASE5.md) for verified coverage and remaining gates. There is no program execution, completed safety checker, IR, backend or runtime.
 
 ## Build and inspect
 
@@ -21,7 +21,7 @@ cargo bench --bench semantic
 cargo run --bin cretes-front -- analyze --target-bits 64 --module app examples/03-functions.cretes --entry app
 ```
 
-`cretes-front` is an experimental developer utility. `lex` prints tokens; `parse` prints the arena AST. Diagnostics go to stderr. Exit codes: 0 for successful syntax processing, 1 for source diagnostics, 2 for usage/I/O failures. Syntax success does not establish semantic validity. The experimental `analyze` command accepts an explicit module map and target width; its success does not certify complete language validity or move/loan safety. Debug output and Rust APIs are not stable compatibility promises.
+`cretes-front` is an experimental developer utility. `lex` prints tokens; `parse` prints the arena AST. Diagnostics go to stderr. Exit codes: 0 for successful syntax processing, 1 for source diagnostics, 2 for usage/I/O failures. Syntax success does not establish semantic validity. The experimental `analyze` command accepts an explicit module map and target width; its success does not certify complete language validity or move/loan safety. Inspection output explicitly reports that move/loan safety has not been analyzed. See the [typed semantic handoff and traceability](docs/SEMANTIC-HANDOFF.md). Debug output and Rust APIs are not stable compatibility promises.
 
 ## Implementation and evidence
 
